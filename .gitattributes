@@ -1,0 +1,2 @@
+original/nand.bin filter=lfs diff=lfs merge=lfs -text
+original/spi.bin filter=lfs diff=lfs merge=lfs -text
