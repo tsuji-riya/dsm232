@@ -1,6 +1,6 @@
 # U-Boot v2026.07 for CNC1800L (D-Link DSM-232)
 
-`patches/0001-*.patch` を U-Boot `v2026.07` タグに適用する。`./build.sh`(要 `gcc-arm-linux-gnueabi`, `bison flex libssl-dev`)で `u-boot.bin` ができる(約 190KB)。
+`patches/0001-*.patch`(+ `0002`)を U-Boot `v2026.07` タグに適用する。`./build.sh`(要 `gcc-arm-linux-gnueabi`, `bison flex libssl-dev`)で `u-boot.bin` ができる(約 190KB)。
 
 ## 内容
 | 項目 | 内容 |
@@ -12,7 +12,8 @@
 | タイマ | `drivers/timer/cnc1800l-timer.c`(APB timer 0x801e2000、16bit アクセス、down→up 変換) |
 | リセット | WDT(0x801e1000)で `reset_cpu`(純正パッチと同じ手順) |
 | メモリ | DT は 256MB。U-Boot の再配置上限は 0x08900000(Linux 側 DTS と同じ。上はベンダー FW の FB/ビデオ領域) |
-| 無効化 | キャッシュ(I/D)は初回ブリングアップのため OFF。ネットワーク/NAND/USB/HDMI は未実装 |
+| NAND/SPI | `patches/0002-*`: NAND ドライバ(旧=HW Hamming互換 / 新=標準soft BCH を DT で切替)、`designware_spi` 16bit 対応、`sf`/`nand`/`mtd` コマンド。`dsm232_defconfig`(旧)/`dsm232_newecc_defconfig`(新)。約 347KB。詳細は `docs/FLASH_SUPPORT.md` |
+| 無効化 | キャッシュ(I/D)は初回ブリングアップのため OFF。ネットワーク/USB/HDMI は未実装 |
 
 DDR・PLL・ピンマックスは **ベンダー miniloader(バイナリ)** が初期化済みの前提で、`lowlevel_init` は空。
 

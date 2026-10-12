@@ -1,7 +1,8 @@
 From e203e4c42418fd108bbbef040a6260444282181e Mon Sep 17 00:00:00 2001
 From: tsuji-riya <tsuji.riya@gmail.com>
 Date: Mon, 12 Oct 2026 00:34:35 +0000
-Subject: [PATCH] arm: add Celestial CNC1800L / D-Link DSM-232 board support
+Subject: [PATCH 1/2] arm: add Celestial CNC1800L / D-Link DSM-232 board
+ support
 
 Minimal DM based port: ARM1176 core, DW APB UART console (ns16550),
 APB timer driver, watchdog reset, DT and defconfig. DDR/PLL setup is

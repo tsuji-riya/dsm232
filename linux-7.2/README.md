@@ -1,6 +1,6 @@
 # Linux v7.2 for CNC1800L (D-Link DSM-232)
 
-`patches/0001-*.patch` を Linux v7.2 (`v7.2` タグ) に適用する。ビルドは `./build.sh` (要 `gcc-arm-linux-gnueabi`, `u-boot-tools`, `bc flex bison libssl-dev`)。
+`patches/0001-*.patch`(+ `0002`)を Linux v7.2 (`v7.2` タグ) に適用する。ビルドは `./build.sh` (要 `gcc-arm-linux-gnueabi`, `u-boot-tools`, `bc flex bison libssl-dev`)。
 
 ## 追加内容
 | 項目 | 内容 |
@@ -11,6 +11,7 @@
 | UART | `snps,dw-apb-uart` ×2 (0x801f1000 IRQ12 / 0x801f2000 IRQ13), reg-shift 2, io-width 4, 47.25MHz。console は ttyS0 115200 |
 | DTS | `arch/arm/boot/dts/celestial/cnc1800l{.dtsi,-dsm232.dts}` |
 | defconfig | `cnc1800l_defconfig` (ARM_APPENDED_DTB + ATAG_DTB_COMPAT) |
+| NAND/SPI | `patches/0002-*`: CNC1800L NAND コントローラ(旧=HW Hamming互換 / 新=標準soft ECC を DT で切替)、DW SSI + spi-nor。詳細は `docs/FLASH_SUPPORT.md`。DTS は旧 `cnc1800l-dsm232.dts` / 新 `cnc1800l-dsm232-newecc.dts` |
 | メモリ | 0x0–0x08900000 のみ Linux に渡す。それより上はベンダーFWがFB/ビデオ/オーディオ/demux用に使う領域 (`mem_define.h` Tiga-Mini 計算値) |
 
 ## 検証状況

@@ -1,0 +1,598 @@
+From 6a93064be514400ae2b683052bf714cf26ad8c77 Mon Sep 17 00:00:00 2001
+From: tsuji-riya <tsuji.riya@gmail.com>
+Date: Mon, 12 Oct 2026 01:07:41 +0000
+Subject: [PATCH 2/2] nand, spi: add CNC1800L NAND controller and 16-bit
+ Designware SPI
+
+Add a DM raw NAND driver for the Celestial CNC1800L. ECC follows the
+standard NAND DT properties: default is the SoC 1-bit Hamming engine in
+the vendor on-flash format, nand-ecc-mode = "soft" selects software BCH.
+Let the Designware SPI driver use 16 bit register accesses
+(reg-io-width = <2>) and enable SPI NOR and NAND commands, with a second
+board DTS/defconfig using generic ECC.
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01K1YEf8BfFQRcvUTgm7e5vZ
+---
+ arch/arm/dts/Makefile                   |   2 +-
+ arch/arm/dts/cnc1800l-dsm232-newecc.dts |  20 +++
+ arch/arm/dts/cnc1800l-dsm232.dts        |  42 +++++
+ configs/dsm232_defconfig                |  24 +++
+ configs/dsm232_newecc_defconfig         |  47 +++++
+ drivers/mtd/nand/raw/Kconfig            |  13 ++
+ drivers/mtd/nand/raw/Makefile           |   1 +
+ drivers/mtd/nand/raw/cnc1800l_nand.c    | 224 ++++++++++++++++++++++++
+ drivers/spi/designware_spi.c            |  42 +++--
+ 9 files changed, 403 insertions(+), 12 deletions(-)
+ create mode 100644 arch/arm/dts/cnc1800l-dsm232-newecc.dts
+ create mode 100644 configs/dsm232_newecc_defconfig
+ create mode 100644 drivers/mtd/nand/raw/cnc1800l_nand.c
+
+diff --git a/arch/arm/dts/Makefile b/arch/arm/dts/Makefile
+index 9454e148..9ef69e2f 100644
+--- a/arch/arm/dts/Makefile
++++ b/arch/arm/dts/Makefile
+@@ -1,6 +1,6 @@
+ # SPDX-License-Identifier: GPL-2.0+
+ 
+-dtb-$(CONFIG_TARGET_DSM232) += cnc1800l-dsm232.dtb
++dtb-$(CONFIG_TARGET_DSM232) += cnc1800l-dsm232.dtb cnc1800l-dsm232-newecc.dtb
+ dtb-$(CONFIG_TARGET_SMARTWEB) += at91sam9260-smartweb.dtb
+ dtb-$(CONFIG_TARGET_TAURUS) += at91sam9g20-taurus.dtb
+ dtb-$(CONFIG_TARGET_CORVUS) += at91sam9g45-corvus.dtb
+diff --git a/arch/arm/dts/cnc1800l-dsm232-newecc.dts b/arch/arm/dts/cnc1800l-dsm232-newecc.dts
+new file mode 100644
+index 00000000..2ea08f26
+--- /dev/null
++++ b/arch/arm/dts/cnc1800l-dsm232-newecc.dts
+@@ -0,0 +1,20 @@
++// SPDX-License-Identifier: GPL-2.0+ OR MIT
++/*
++ * DSM-232 with the generic software BCH NAND ECC instead of the SoC 1-bit
++ * Hamming engine. NOT compatible with the vendor on-flash format
++ * (miniloader, vendor firmware).
++ */
++#include "cnc1800l-dsm232.dts"
++
++/ {
++	model = "D-Link DSM-232 (A1), generic NAND ECC";
++};
++
++&nand {
++	nand@0 {
++		nand-ecc-mode = "soft";
++		nand-ecc-algo = "bch";
++		nand-ecc-strength = <4>;
++		nand-ecc-step-size = <512>;
++	};
++};
+diff --git a/arch/arm/dts/cnc1800l-dsm232.dts b/arch/arm/dts/cnc1800l-dsm232.dts
+index 4156813f..e4a2d9fc 100644
+--- a/arch/arm/dts/cnc1800l-dsm232.dts
++++ b/arch/arm/dts/cnc1800l-dsm232.dts
+@@ -33,6 +33,13 @@
+ 		reg = <0x00000000 0x10000000>;
+ 	};
+ 
++	/* AHB2_SPI_TCLK of the SPI controller */
++	spi_clk: clock-spi {
++		compatible = "fixed-clock";
++		#clock-cells = <0>;
++		clock-frequency = <94500000>;
++	};
++
+ 	soc {
+ 		compatible = "simple-bus";
+ 		#address-cells = <1>;
+@@ -47,6 +54,41 @@
+ 			bootph-all;
+ 		};
+ 
++		/* Designware SSI with 16 bit register accesses */
++		spi0: spi@80150000 {
++			compatible = "snps,dw-apb-ssi";
++			reg = <0x80150000 0x100>;
++			reg-io-width = <2>;
++			clocks = <&spi_clk>;
++			spi-max-frequency = <40000000>;
++			num-cs = <1>;
++			#address-cells = <1>;
++			#size-cells = <0>;
++
++			flash@0 {
++				compatible = "jedec,spi-nor";
++				reg = <0>;
++				spi-max-frequency = <40000000>;
++			};
++		};
++
++		nand: nand-controller@a4000000 {
++			compatible = "celestial,cnc1800l-nand";
++			reg = <0xa4000000 0x2000000>, <0x80100000 0x48>;
++			#address-cells = <1>;
++			#size-cells = <0>;
++
++			nand@0 {
++				reg = <0>;
++				nand-on-flash-bbt;
++
++				/*
++				 * LEGACY ECC (default): SoC 1-bit Hamming /
++				 * 512 bytes, the vendor on-flash format.
++				 */
++			};
++		};
++
+ 		uart0: serial@801f1000 {
+ 			compatible = "snps,dw-apb-uart";
+ 			reg = <0x801f1000 0x100>;
+diff --git a/configs/dsm232_defconfig b/configs/dsm232_defconfig
+index 33d743bc..c73b22c0 100644
+--- a/configs/dsm232_defconfig
++++ b/configs/dsm232_defconfig
+@@ -20,3 +20,27 @@ CONFIG_CMD_MEMTEST=y
+ # CONFIG_EFI_LOADER is not set
+ # CONFIG_NET is not set
+ # CONFIG_DISPLAY_CPUINFO is not set
++CONFIG_DM_SPI=y
++CONFIG_SPI=y
++CONFIG_DESIGNWARE_SPI=y
++CONFIG_CLK=y
++CONFIG_CLK_FIXED_RATE=y
++CONFIG_SPI_FLASH=y
++CONFIG_SPI_FLASH_SFDP_SUPPORT=y
++CONFIG_SPI_FLASH_WINBOND=y
++CONFIG_SPI_FLASH_MACRONIX=y
++CONFIG_SPI_FLASH_GIGADEVICE=y
++CONFIG_SPI_FLASH_EON=y
++CONFIG_SPI_FLASH_SPANSION=y
++CONFIG_SPI_FLASH_STMICRO=y
++CONFIG_CMD_SF=y
++CONFIG_MTD=y
++CONFIG_DM_MTD=y
++CONFIG_MTD_RAW_NAND=y
++CONFIG_NAND_CNC1800L=y
++CONFIG_SYS_NAND_USE_FLASH_BBT=y
++CONFIG_CMD_NAND=y
++CONFIG_CMD_MTD=y
++CONFIG_CMD_MTDPARTS=y
++CONFIG_MTDIDS_DEFAULT="nand0=nand0"
++CONFIG_MTDPARTS_DEFAULT="mtdparts=nand0:3m(kernel),504m(fs),3m(kernel_update),2m(bad_blks_table)"
+diff --git a/configs/dsm232_newecc_defconfig b/configs/dsm232_newecc_defconfig
+new file mode 100644
+index 00000000..9e2ba3f0
+--- /dev/null
++++ b/configs/dsm232_newecc_defconfig
+@@ -0,0 +1,47 @@
++CONFIG_ARM=y
++CONFIG_ARCH_CELESTIAL=y
++CONFIG_TEXT_BASE=0x02000000
++CONFIG_SYS_MALLOC_LEN=0x100000
++CONFIG_SYS_MALLOC_F_LEN=0x2000
++CONFIG_HAS_CUSTOM_SYS_INIT_SP_ADDR=y
++CONFIG_CUSTOM_SYS_INIT_SP_ADDR=0x01fff000
++CONFIG_NR_DRAM_BANKS=1
++CONFIG_ENV_SIZE=0x4000
++CONFIG_DEFAULT_DEVICE_TREE="cnc1800l-dsm232-newecc"
++CONFIG_TARGET_DSM232=y
++CONFIG_SYS_LOAD_ADDR=0x01000000
++CONFIG_SYS_ICACHE_OFF=y
++CONFIG_SYS_DCACHE_OFF=y
++CONFIG_SKIP_LOWLEVEL_INIT=y
++CONFIG_BOOTDELAY=3
++CONFIG_SYS_PROMPT="DSM232> "
++CONFIG_CMD_MEMTEST=y
++# CONFIG_CMD_BOOTEFI is not set
++# CONFIG_EFI_LOADER is not set
++# CONFIG_NET is not set
++# CONFIG_DISPLAY_CPUINFO is not set
++CONFIG_DM_SPI=y
++CONFIG_SPI=y
++CONFIG_DESIGNWARE_SPI=y
++CONFIG_CLK=y
++CONFIG_CLK_FIXED_RATE=y
++CONFIG_SPI_FLASH=y
++CONFIG_SPI_FLASH_SFDP_SUPPORT=y
++CONFIG_SPI_FLASH_WINBOND=y
++CONFIG_SPI_FLASH_MACRONIX=y
++CONFIG_SPI_FLASH_GIGADEVICE=y
++CONFIG_SPI_FLASH_EON=y
++CONFIG_SPI_FLASH_SPANSION=y
++CONFIG_SPI_FLASH_STMICRO=y
++CONFIG_CMD_SF=y
++CONFIG_MTD=y
++CONFIG_DM_MTD=y
++CONFIG_MTD_RAW_NAND=y
++CONFIG_NAND_CNC1800L=y
++CONFIG_SYS_NAND_USE_FLASH_BBT=y
++CONFIG_CMD_NAND=y
++CONFIG_CMD_MTD=y
++CONFIG_CMD_MTDPARTS=y
++CONFIG_MTDIDS_DEFAULT="nand0=nand0"
++CONFIG_MTDPARTS_DEFAULT="mtdparts=nand0:3m(kernel),504m(fs),3m(kernel_update),2m(bad_blks_table)"
++CONFIG_NAND_ECC_BCH=y
+diff --git a/drivers/mtd/nand/raw/Kconfig b/drivers/mtd/nand/raw/Kconfig
+index 2999e6b1..5d95f3b9 100644
+--- a/drivers/mtd/nand/raw/Kconfig
++++ b/drivers/mtd/nand/raw/Kconfig
+@@ -47,6 +47,19 @@ config SYS_NAND_NO_SUBPAGE_WRITE
+ 	bool "Disable subpage write support"
+ 	depends on NAND_ARASAN || NAND_DAVINCI || NAND_KIRKWOOD
+ 
++config NAND_CNC1800L
++	bool "Celestial CNC1800L NAND controller"
++	depends on ARCH_CELESTIAL && DM
++	select SYS_NAND_SELF_INIT
++	select BCH if NAND_ECC_BCH
++	imply SYS_NAND_USE_FLASH_BBT
++	imply NAND_ECC_BCH
++	help
++	  Enable the NAND controller driver of the Celestial CNC1800L SoC.
++	  Default ECC is the SoC 1-bit Hamming engine in the vendor on-flash
++	  format; use nand-ecc-mode = "soft" (and nand-ecc-algo = "bch") in
++	  the device tree for the generic software ECC.
++
+ config DM_NAND_ATMEL
+ 	bool "Support Atmel NAND controller with DM support"
+ 	depends on ARCH_AT91
+diff --git a/drivers/mtd/nand/raw/Makefile b/drivers/mtd/nand/raw/Makefile
+index 76546a62..86f14655 100644
+--- a/drivers/mtd/nand/raw/Makefile
++++ b/drivers/mtd/nand/raw/Makefile
+@@ -54,6 +54,7 @@ obj-$(CONFIG_NAND_ARASAN) += arasan_nfc.o
+ obj-$(CONFIG_NAND_BRCMNAND) += brcmnand/
+ obj-$(CONFIG_NAND_CADENCE) += cadence_nand.o
+ obj-$(CONFIG_NAND_DAVINCI) += davinci_nand.o
++obj-$(CONFIG_NAND_CNC1800L) += cnc1800l_nand.o
+ obj-$(CONFIG_NAND_DENALI) += denali.o
+ obj-$(CONFIG_NAND_DENALI_DT) += denali_dt.o
+ obj-$(CONFIG_NAND_FSL_ELBC) += fsl_elbc_nand.o
+diff --git a/drivers/mtd/nand/raw/cnc1800l_nand.c b/drivers/mtd/nand/raw/cnc1800l_nand.c
+new file mode 100644
+index 00000000..f546f74b
+--- /dev/null
++++ b/drivers/mtd/nand/raw/cnc1800l_nand.c
+@@ -0,0 +1,224 @@
++// SPDX-License-Identifier: GPL-2.0+
++/*
++ * NAND controller driver for the Celestial (Cavium) CNC1800L SoC
++ *
++ * Data cycles go to the base of the access window, command / address cycles
++ * to base + CLE / ALE. Chip enable is forced from CEn_CFG_0, ready/busy is
++ * read from the status register.
++ *
++ * ECC follows the standard NAND device tree properties of the chip node
++ * (same as Linux):
++ *  - default ("legacy"): SoC 1-bit Hamming engine, 3 bytes per 512 bytes,
++ *    the vendor on-flash format (used by the miniloader / vendor firmware)
++ *  - nand-ecc-mode = "soft" (+ nand-ecc-algo = "bch", nand-ecc-strength,
++ *    nand-ecc-step-size): generic software ECC, NOT compatible with the
++ *    vendor format.
++ */
++
++#include <dm.h>
++#include <log.h>
++#include <malloc.h>
++#include <nand.h>
++#include <asm/io.h>
++#include <linux/bitops.h>
++#include <linux/mtd/rawnand.h>
++
++#define CNC_CE_CFG0(cs)		((cs) * 0x0c)
++#define CNC_CE_FORCE_LOW	BIT(9)
++#define CNC_STATUS		0x30
++#define CNC_STATUS_READY	BIT(0)
++#define CNC_ECC_CODE		0x40
++#define CNC_ECC_ADDR		0x48
++
++#define CNC_MASK_ALE		0x08
++#define CNC_MASK_CLE		0x04
++
++struct cnc_nand {
++	struct nand_chip	chip;
++	void __iomem		*base;	/* control registers */
++	void __iomem		*window; /* data window (identity mapped) */
++};
++
++static inline struct cnc_nand *to_cnc_nand(struct mtd_info *mtd)
++{
++	return container_of(mtd_to_nand(mtd), struct cnc_nand, chip);
++}
++
++/* ---- legacy 1-bit Hamming engine (vendor format) ---- */
++
++static void cnc_nand_hwctl(struct mtd_info *mtd, int mode)
++{
++	struct cnc_nand *nand = to_cnc_nand(mtd);
++
++	/* the engine snoops the data window access at this address */
++	writel((u32)(uintptr_t)nand->window, nand->base + CNC_ECC_ADDR);
++}
++
++static int cnc_nand_calculate(struct mtd_info *mtd, const u_char *dat,
++			      u_char *ecc_code)
++{
++	struct cnc_nand *nand = to_cnc_nand(mtd);
++	u32 ecc24 = readl(nand->base + CNC_ECC_CODE);
++
++	ecc_code[0] = ecc24;
++	ecc_code[1] = ecc24 >> 8;
++	ecc_code[2] = ecc24 >> 16;
++
++	return 0;
++}
++
++static int cnc_nand_correct(struct mtd_info *mtd, u_char *dat,
++			    u_char *read_ecc, u_char *calc_ecc)
++{
++	u32 ecc_nand = read_ecc[0] | (read_ecc[1] << 8) | (read_ecc[2] << 16);
++	u32 ecc_calc = calc_ecc[0] | (calc_ecc[1] << 8) | (calc_ecc[2] << 16);
++	u32 diff = ecc_calc ^ ecc_nand;
++	unsigned int bit, byte;
++
++	if (!diff)
++		return 0;
++
++	if ((((diff >> 1) ^ diff) & 0x555555) == 0x555555) {
++		bit = ((diff >> 19) & 1) | ((diff >> 20) & 2) |
++		      ((diff >> 21) & 4);
++		byte = ((diff >> 9) & 0x100) | (diff & 0x80) |
++		       ((diff << 1) & 0x40) | ((diff << 2) & 0x20) |
++		       ((diff << 3) & 0x10) | ((diff >> 12) & 0x08) |
++		       ((diff >> 11) & 0x04) | ((diff >> 10) & 0x02) |
++		       ((diff >> 9) & 0x01);
++
++		if (byte >= 512)
++			return -EBADMSG;
++		dat[byte] ^= BIT(bit);
++		return 1;
++	}
++
++	/* single bit error in the code itself */
++	if (!(diff & (diff - 1)))
++		return 1;
++
++	return -EBADMSG;
++}
++
++/* ---- bus access ---- */
++
++static void cnc_nand_cmd_ctrl(struct mtd_info *mtd, int cmd, unsigned int ctrl)
++{
++	struct cnc_nand *nand = to_cnc_nand(mtd);
++	struct nand_chip *chip = &nand->chip;
++	void __iomem *addr = nand->window;
++	u32 val;
++
++	if (ctrl & NAND_CTRL_CHANGE) {
++		val = readl(nand->base + CNC_CE_CFG0(0));
++		if (ctrl & NAND_NCE)
++			val |= CNC_CE_FORCE_LOW;
++		else
++			val &= ~CNC_CE_FORCE_LOW;
++		writel(val, nand->base + CNC_CE_CFG0(0));
++
++		if (ctrl & NAND_CLE)
++			addr += CNC_MASK_CLE;
++		else if (ctrl & NAND_ALE)
++			addr += CNC_MASK_ALE;
++		chip->IO_ADDR_W = addr;
++	}
++
++	if (cmd != NAND_CMD_NONE)
++		writeb(cmd, chip->IO_ADDR_W);
++}
++
++static int cnc_nand_dev_ready(struct mtd_info *mtd)
++{
++	struct cnc_nand *nand = to_cnc_nand(mtd);
++
++	return readl(nand->base + CNC_STATUS) & CNC_STATUS_READY;
++}
++
++static void cnc_nand_read_buf(struct mtd_info *mtd, u_char *buf, int len)
++{
++	struct nand_chip *chip = mtd_to_nand(mtd);
++
++	readsb(chip->IO_ADDR_R, buf, len);
++}
++
++static void cnc_nand_write_buf(struct mtd_info *mtd, const u_char *buf, int len)
++{
++	struct nand_chip *chip = mtd_to_nand(mtd);
++
++	writesb(chip->IO_ADDR_W, buf, len);
++}
++
++static int cnc_nand_probe(struct udevice *dev)
++{
++	struct cnc_nand *nand = dev_get_priv(dev);
++	struct nand_chip *chip = &nand->chip;
++	struct mtd_info *mtd = nand_to_mtd(chip);
++	ofnode node = dev_ofnode(dev);
++	fdt_addr_t addr;
++	int ret;
++
++	addr = dev_read_addr_index(dev, 0);
++	if (addr == FDT_ADDR_T_NONE)
++		return -EINVAL;
++	nand->window = (void __iomem *)addr;
++
++	addr = dev_read_addr_index(dev, 1);
++	if (addr == FDT_ADDR_T_NONE)
++		return -EINVAL;
++	nand->base = (void __iomem *)addr;
++
++	/* ECC properties live on the first chip child node (as in Linux) */
++	if (ofnode_valid(ofnode_first_subnode(node)))
++		node = ofnode_first_subnode(node);
++	nand_set_flash_node(chip, node);
++
++	chip->IO_ADDR_R = nand->window;
++	chip->IO_ADDR_W = nand->window;
++	chip->chip_delay = 0;
++	chip->cmd_ctrl = cnc_nand_cmd_ctrl;
++	chip->dev_ready = cnc_nand_dev_ready;
++	chip->read_buf = cnc_nand_read_buf;
++	chip->write_buf = cnc_nand_write_buf;
++	chip->bbt_options |= NAND_BBT_USE_FLASH;
++
++	/* legacy default; nand_scan() may replace it from the DT properties */
++	chip->ecc.mode = NAND_ECC_HW;
++	chip->ecc.size = 512;
++	chip->ecc.bytes = 3;
++	chip->ecc.strength = 1;
++	chip->ecc.algo = NAND_ECC_HAMMING;
++	chip->ecc.calculate = cnc_nand_calculate;
++	chip->ecc.correct = cnc_nand_correct;
++	chip->ecc.hwctl = cnc_nand_hwctl;
++
++	ret = nand_scan(mtd, 1);
++	if (ret)
++		return ret;
++
++	return nand_register(0, mtd);
++}
++
++static const struct udevice_id cnc_nand_ids[] = {
++	{ .compatible = "celestial,cnc1800l-nand" },
++	{ }
++};
++
++U_BOOT_DRIVER(cnc1800l_nand) = {
++	.name		= "cnc1800l-nand",
++	.id		= UCLASS_MTD,
++	.of_match	= cnc_nand_ids,
++	.probe		= cnc_nand_probe,
++	.priv_auto	= sizeof(struct cnc_nand),
++};
++
++void board_nand_init(void)
++{
++	struct udevice *dev;
++	int ret;
++
++	ret = uclass_get_device_by_driver(UCLASS_MTD,
++					  DM_DRIVER_GET(cnc1800l_nand), &dev);
++	if (ret && ret != -ENODEV)
++		pr_err("Failed to initialize CNC1800L NAND: %d\n", ret);
++}
+diff --git a/drivers/spi/designware_spi.c b/drivers/spi/designware_spi.c
+index b520c727..b2e48fb7 100644
+--- a/drivers/spi/designware_spi.c
++++ b/drivers/spi/designware_spi.c
+@@ -118,6 +118,7 @@
+ struct dw_spi_plat {
+ 	s32 frequency;		/* Default clock frequency, -1 for none */
+ 	void __iomem *regs;
++	u32 reg_io_width;	/* register access width in bytes (2 or 4) */
+ };
+ 
+ struct dw_spi_priv {
+@@ -128,6 +129,7 @@ struct dw_spi_priv {
+ 	u32 (*update_cr0)(struct dw_spi_priv *priv);
+ 
+ 	void __iomem *regs;
++	u32 reg_io_width;
+ 	unsigned long bus_clk_rate;
+ 	unsigned int freq;		/* Default frequency */
+ 	unsigned int mode;
+@@ -148,12 +150,33 @@ struct dw_spi_priv {
+ 
+ static inline u32 dw_read(struct dw_spi_priv *priv, u32 offset)
+ {
++	if (priv->reg_io_width == 2)
++		return __raw_readw(priv->regs + offset);
++
+ 	return __raw_readl(priv->regs + offset);
+ }
+ 
+ static inline void dw_write(struct dw_spi_priv *priv, u32 offset, u32 val)
+ {
+-	__raw_writel(val, priv->regs + offset);
++	if (priv->reg_io_width == 2)
++		__raw_writew(val, priv->regs + offset);
++	else
++		__raw_writel(val, priv->regs + offset);
++}
++
++/* Wait until the Tx FIFO is empty and the controller is idle */
++static int dw_spi_wait_idle(struct dw_spi_priv *priv)
++{
++	unsigned long start = get_timer(0);
++	u32 val;
++
++	do {
++		val = dw_read(priv, DW_SPI_SR);
++		if ((val & SR_TF_EMPT) && !(val & SR_BUSY))
++			return 0;
++	} while (get_timer(start) < RX_TIMEOUT);
++
++	return -ETIMEDOUT;
+ }
+ 
+ static u32 dw_spi_dw16_update_cr0(struct dw_spi_priv *priv)
+@@ -252,6 +275,10 @@ static int dw_spi_of_to_plat(struct udevice *bus)
+ 	if (!plat->regs)
+ 		return -EINVAL;
+ 
++	plat->reg_io_width = dev_read_u32_default(bus, "reg-io-width", 4);
++	if (plat->reg_io_width != 2 && plat->reg_io_width != 4)
++		return -EINVAL;
++
+ 	/* Use 500KHz as a suitable default */
+ 	plat->frequency = dev_read_u32_default(bus, "spi-max-frequency",
+ 					       500000);
+@@ -363,6 +390,7 @@ static int dw_spi_probe(struct udevice *bus)
+ 	u32 version;
+ 
+ 	priv->regs = plat->regs;
++	priv->reg_io_width = plat->reg_io_width;
+ 	priv->freq = plat->frequency;
+ 
+ 	ret = dw_spi_get_clk(bus, &priv->bus_clk_rate);
+@@ -501,7 +529,6 @@ static int dw_spi_xfer(struct udevice *dev, unsigned int bitlen,
+ 	u8 *rx = din;
+ 	int ret = 0;
+ 	u32 cr0 = 0;
+-	u32 val;
+ 	u32 cs;
+ 
+ 	/* spi core configured to do 8 bit transfers */
+@@ -564,11 +591,8 @@ static int dw_spi_xfer(struct udevice *dev, unsigned int bitlen,
+ 	 * which happens when writing 0 to DW_SPI_SSIENR which happens
+ 	 * in the beginning of new transfer.
+ 	 */
+-	if (readl_poll_timeout(priv->regs + DW_SPI_SR, val,
+-			       (val & SR_TF_EMPT) && !(val & SR_BUSY),
+-			       RX_TIMEOUT * 1000)) {
++	if (dw_spi_wait_idle(priv))
+ 		ret = -ETIMEDOUT;
+-	}
+ 
+ 	/* Stop the transaction if necessary */
+ 	if (flags & SPI_XFER_END)
+@@ -649,7 +673,6 @@ static int dw_spi_exec_op(struct spi_slave *slave, const struct spi_mem_op *op)
+ 			prev_rx = priv->rx;
+ 		}
+ 	} else {
+-		u32 val;
+ 
+ 		priv->tx = op->data.buf.out;
+ 		priv->tx_end = priv->tx + op->data.nbytes;
+@@ -660,11 +683,8 @@ static int dw_spi_exec_op(struct spi_slave *slave, const struct spi_mem_op *op)
+ 		while (priv->tx != priv->tx_end)
+ 			dw_writer(priv);
+ 
+-		if (readl_poll_timeout(priv->regs + DW_SPI_SR, val,
+-				       (val & SR_TF_EMPT) && !(val & SR_BUSY),
+-				       RX_TIMEOUT * 1000)) {
++		if (dw_spi_wait_idle(priv))
+ 			ret = -ETIMEDOUT;
+-		}
+ 	}
+ 
+ 	dw_write(priv, DW_SPI_SER, 0);
+-- 
+2.43.0
+

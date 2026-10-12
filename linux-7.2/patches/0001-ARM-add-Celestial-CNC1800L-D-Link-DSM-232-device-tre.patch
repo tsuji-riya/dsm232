@@ -1,7 +1,7 @@
 From 959cfd0c4bb698b2bef548f55169485bad69f3cb Mon Sep 17 00:00:00 2001
 From: tsuji-riya <tsuji.riya@gmail.com>
 Date: Mon, 12 Oct 2026 00:02:48 +0000
-Subject: [PATCH] ARM: add Celestial CNC1800L (D-Link DSM-232) device tree
+Subject: [PATCH 1/2] ARM: add Celestial CNC1800L (D-Link DSM-232) device tree
  support
 
 Add minimal DT based support for the Celestial/Cavium CNC1800L SoC
