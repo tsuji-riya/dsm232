@@ -39,3 +39,35 @@
 - 実機の U-Boot バイナリが GPL 版と同一か、`update` / `upgrade` が有効かは未確認 (`help` で確認)。
 - 開始アドレスのスケール (encrypt.c の 8桁 hex が byte 単位か) と NAND パーティションの対応は実機で `nand info` と突き合わせること。
 - miniloader/U-Boot 領域(SPI)に誤って書くと文鎮化する。
+
+---
+## 追記: UART 無し・USB を挿して電源 ON だけで書き換える方法
+
+**確実に動くと確認できた方法はない**(実機未検証、`fwimg`/`fwup` はバイナリのみで検証内容が読めない)。ソースから見て最有力なのは次の 1 つ。
+
+### 有力: 純正 Linux の起動スクリプトによる自動 USB 更新
+- `6611L_TigaMini/skeleton/etc/normalrc` (= `dlink/script/normalrc`) が起動のたびに **`usbupg -f`** を実行する。
+- `usbupg -f` (`dlink/usbupg/usbupg.c`): `/dev/sda` があれば `mount /dev/sda1 /mnt/usb` し、
+  `/mnt/usb/cameo_factory/factory.img` があれば `cd /mnt/usb/cameo_factory; fwimg -f factory.img` を実行(表示: "Firmware found")。
+  なければ何もしない。
+- `-f` 無し(UI などから呼ばれる場合)は `gcg_firmware/dsm232.img` を `fwimg dsm232.img` で書く。
+- つまり **FAT フォーマットの USB メモリに `cameo_factory/factory.img` を置いて挿し、電源を入れる**と、純正 FW が起動後に自動で書き込む可能性が高い。
+
+### factory.img の作り方 (GPL 付属ツールで再現可能)
+`tools/rootfs/build` より:
+```
+bootpImage (kernel + initramfs を一体化)            # DSM-232 の rootfs は initramfs 方式
+  → mkimage -a 0x8000 -e 0x8000 -T kernel  → ubootpImage
+  → CreateCavm18NetHdImageAligned ubootpImage dsm232.bin [padding] [align=128K]   # i386 静的バイナリ、実行確認済み
+  → mkimg -A ARM -C none -T flashfs -n DSM232_FlashFS -d dsm232.bin dsm232.img      # fwimg 用 (gcg_firmware/dsm232.img)
+  → mkimg -A ARM -C none -T fffs    -n DSM232_FlashFS -d dsm232.bin dsm232_fact.img # 工場用 → factory.img
+```
+- `dsm232.bin` は「bootloader からのアップグレード用」(U-Boot の `upgrade`/`update` 経路)。
+- Linux 7.2 を載せるなら、`bootp` は無いので **initramfs を内蔵した zImage + DTB 連結 → uImage(0x8000)** を `ubootpImage` の代わりに使う想定。
+- `mkimg` は 32bit 動的バイナリのため `libc6:i386` が必要 (`dpkg --add-architecture i386`)。
+
+### リスク (UART 無しの場合は特に重要)
+- `fwimg` が署名・機器 ID・サイズ・パーティション範囲を検査するかは不明。拒否されても無害だが、通れば **NAND/SPI の対象領域を上書き**する。
+- 書き込み先が kernel/rootfs 領域のみか、U-Boot(SPI) まで含むか **イメージ形式から確認できていない**。U-Boot が壊れると UART 無しでは復旧不能。
+- 自作カーネルが起動しなかった場合、画面・UART が無いと原因が見えない。純正に戻すには再度 USB 更新が必要だが、純正 Linux が消えていれば `usbupg` 経路も使えなくなる(U-Boot 側の USB `update`/`upgrade` が残っていることに依存)。
+- 先に「純正 FW の `dsm232.img`」を USB に入れて**同じ手順で書けること**を確認し、`mkimg -l` で純正イメージのヘッダを解析して書き込み領域を把握してから進めるのが安全。
