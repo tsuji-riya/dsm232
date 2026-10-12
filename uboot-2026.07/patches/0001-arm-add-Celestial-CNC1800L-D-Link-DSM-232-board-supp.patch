@@ -1,0 +1,516 @@
+From e203e4c42418fd108bbbef040a6260444282181e Mon Sep 17 00:00:00 2001
+From: tsuji-riya <tsuji.riya@gmail.com>
+Date: Mon, 12 Oct 2026 00:34:35 +0000
+Subject: [PATCH] arm: add Celestial CNC1800L / D-Link DSM-232 board support
+
+Minimal DM based port: ARM1176 core, DW APB UART console (ns16550),
+APB timer driver, watchdog reset, DT and defconfig. DDR/PLL setup is
+left to the vendor miniloader; U-Boot runs at 0x02000000 as the
+second boot loader. Not tested on hardware.
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01K1YEf8BfFQRcvUTgm7e5vZ
+---
+ arch/arm/Kconfig                 | 19 ++++++++
+ arch/arm/dts/Makefile            |  1 +
+ arch/arm/dts/cnc1800l-dsm232.dts | 68 +++++++++++++++++++++++++++++
+ arch/arm/mach-celestial/Kconfig  | 28 ++++++++++++
+ arch/arm/mach-celestial/Makefile |  1 +
+ board/dlink/dsm232/Kconfig       | 12 +++++
+ board/dlink/dsm232/MAINTAINERS   |  8 ++++
+ board/dlink/dsm232/Makefile      |  2 +
+ board/dlink/dsm232/dsm232.c      | 63 +++++++++++++++++++++++++++
+ configs/dsm232_defconfig         | 22 ++++++++++
+ drivers/timer/Kconfig            |  8 ++++
+ drivers/timer/Makefile           |  1 +
+ drivers/timer/cnc1800l-timer.c   | 75 ++++++++++++++++++++++++++++++++
+ include/configs/dsm232.h         | 14 ++++++
+ 14 files changed, 322 insertions(+)
+ create mode 100644 arch/arm/dts/cnc1800l-dsm232.dts
+ create mode 100644 arch/arm/mach-celestial/Kconfig
+ create mode 100644 arch/arm/mach-celestial/Makefile
+ create mode 100644 board/dlink/dsm232/Kconfig
+ create mode 100644 board/dlink/dsm232/MAINTAINERS
+ create mode 100644 board/dlink/dsm232/Makefile
+ create mode 100644 board/dlink/dsm232/dsm232.c
+ create mode 100644 configs/dsm232_defconfig
+ create mode 100644 drivers/timer/cnc1800l-timer.c
+ create mode 100644 include/configs/dsm232.h
+
+diff --git a/arch/arm/Kconfig b/arch/arm/Kconfig
+index 514bf200..a09970b3 100644
+--- a/arch/arm/Kconfig
++++ b/arch/arm/Kconfig
+@@ -663,6 +663,7 @@ config ARCH_KIRKWOOD
+ 	select CPU_ARM926EJS
+ 	select GPIO_EXTRA_HEADER
+ 	select TIMER
++	select SYS_NS16550
+ 
+ config ARCH_MVEBU
+ 	bool "Marvell MVEBU family (Armada XP/375/38x/3700/7K/8K)"
+@@ -695,6 +696,18 @@ config ARCH_BCM283X
+ 	imply FAT_WRITE
+ 	imply OF_HAS_PRIOR_STAGE
+ 
++config ARCH_CELESTIAL
++	bool "Celestial (Cavium) CNC1800L"
++	select CPU_ARM1176
++	select DM
++	select DM_SERIAL
++	select OF_CONTROL
++	select TIMER
++	select SYS_NS16550
++	help
++	  Celestial Semiconductor (later Cavium) CNC1800L set-top-box SoC,
++	  ARM1176 based.
++
+ config ARCH_BCMSTB
+ 	bool "Broadcom BCM7XXX family"
+ 	select CPU_V7A
+@@ -727,6 +740,7 @@ config TARGET_BCMNS
+ 	select OF_CONTROL
+ 	select TIMER
+ 	select SYS_NS16550
++	select SYS_NS16550
+ 	select ARM_GLOBAL_TIMER
+ 	imply SYS_THUMB_BUILD
+ 	imply MTD_RAW_NAND
+@@ -784,6 +798,7 @@ config ARCH_HIGHBANK
+ 	select AHCI
+ 	select PHYS_64BIT
+ 	select TIMER
++	select SYS_NS16550
+ 	select SP804_TIMER
+ 	imply OF_HAS_PRIOR_STAGE
+ 
+@@ -1271,6 +1286,7 @@ config ARCH_U8500
+ 	select OF_CONTROL
+ 	select SYSRESET
+ 	select TIMER
++	select SYS_NS16550
+ 	imply AB8500_USB_PHY
+ 	imply ARM_PL180_MMCI
+ 	imply CLK
+@@ -1353,6 +1369,7 @@ config ARCH_ZYNQ
+ 	select SPL_TIMER if SPL
+ 	select SUPPORT_SPL
+ 	select TIMER
++	select SYS_NS16550
+ 	imply BOARD_LATE_INIT
+ 	imply CMD_CLK
+ 	imply CMD_DM
+@@ -1941,6 +1958,7 @@ config ARCH_SC5XX
+ 	select SPL_SKIP_LOWLEVEL_INIT
+ 	select SUPPORT_SPL
+ 	select TIMER
++	select SYS_NS16550
+ 
+ config TARGET_SL28
+ 	bool "Support sl28"
+@@ -2295,6 +2313,7 @@ source "arch/arm/mach-aspeed/Kconfig"
+ source "arch/arm/mach-at91/Kconfig"
+ 
+ source "arch/arm/mach-bcm283x/Kconfig"
++source "arch/arm/mach-celestial/Kconfig"
+ 
+ source "arch/arm/mach-bcmbca/Kconfig"
+ 
+diff --git a/arch/arm/dts/Makefile b/arch/arm/dts/Makefile
+index 2b65cd91..9454e148 100644
+--- a/arch/arm/dts/Makefile
++++ b/arch/arm/dts/Makefile
+@@ -1,5 +1,6 @@
+ # SPDX-License-Identifier: GPL-2.0+
+ 
++dtb-$(CONFIG_TARGET_DSM232) += cnc1800l-dsm232.dtb
+ dtb-$(CONFIG_TARGET_SMARTWEB) += at91sam9260-smartweb.dtb
+ dtb-$(CONFIG_TARGET_TAURUS) += at91sam9g20-taurus.dtb
+ dtb-$(CONFIG_TARGET_CORVUS) += at91sam9g45-corvus.dtb
+diff --git a/arch/arm/dts/cnc1800l-dsm232.dts b/arch/arm/dts/cnc1800l-dsm232.dts
+new file mode 100644
+index 00000000..4156813f
+--- /dev/null
++++ b/arch/arm/dts/cnc1800l-dsm232.dts
+@@ -0,0 +1,68 @@
++// SPDX-License-Identifier: GPL-2.0+ OR MIT
++/dts-v1/;
++
++/ {
++	model = "D-Link DSM-232 (A1)";
++	compatible = "dlink,dsm-232-a1", "celestial,cnc1800l";
++	#address-cells = <1>;
++	#size-cells = <1>;
++
++	aliases {
++		serial0 = &uart0;
++		serial1 = &uart1;
++	};
++
++	chosen {
++		stdout-path = "serial0:115200n8";
++		bootph-all;
++	};
++
++	cpus {
++		#address-cells = <1>;
++		#size-cells = <0>;
++
++		cpu@0 {
++			device_type = "cpu";
++			compatible = "arm,arm1176jzf-s";
++			reg = <0>;
++		};
++	};
++
++	memory@0 {
++		device_type = "memory";
++		reg = <0x00000000 0x10000000>;
++	};
++
++	soc {
++		compatible = "simple-bus";
++		#address-cells = <1>;
++		#size-cells = <1>;
++		ranges;
++		bootph-all;
++
++		timer@801e2000 {
++			compatible = "celestial,cnc1800l-apb-timer";
++			reg = <0x801e2000 0x100>;
++			clock-frequency = <47250000>;
++			bootph-all;
++		};
++
++		uart0: serial@801f1000 {
++			compatible = "snps,dw-apb-uart";
++			reg = <0x801f1000 0x100>;
++			reg-shift = <2>;
++			reg-io-width = <4>;
++			clock-frequency = <47250000>;
++			bootph-all;
++		};
++
++		uart1: serial@801f2000 {
++			compatible = "snps,dw-apb-uart";
++			reg = <0x801f2000 0x100>;
++			reg-shift = <2>;
++			reg-io-width = <4>;
++			clock-frequency = <47250000>;
++			status = "disabled";
++		};
++	};
++};
+diff --git a/arch/arm/mach-celestial/Kconfig b/arch/arm/mach-celestial/Kconfig
+new file mode 100644
+index 00000000..6566ea42
+--- /dev/null
++++ b/arch/arm/mach-celestial/Kconfig
+@@ -0,0 +1,28 @@
++if ARCH_CELESTIAL
++
++choice
++	prompt "Celestial board select"
++	optional
++
++config TARGET_DSM232
++	bool "D-Link DSM-232 (A1)"
++	help
++	  D-Link DSM-232 media player based on the CNC1800L SoC.
++
++endchoice
++
++config SYS_SOC
++	default "cnc1800l"
++
++config SYS_VENDOR
++	default "dlink" if TARGET_DSM232
++
++config SYS_BOARD
++	default "dsm232" if TARGET_DSM232
++
++config SYS_CONFIG_NAME
++	default "dsm232" if TARGET_DSM232
++
++source "board/dlink/dsm232/Kconfig"
++
++endif
+diff --git a/arch/arm/mach-celestial/Makefile b/arch/arm/mach-celestial/Makefile
+new file mode 100644
+index 00000000..10167020
+--- /dev/null
++++ b/arch/arm/mach-celestial/Makefile
+@@ -0,0 +1 @@
++# SPDX-License-Identifier: GPL-2.0+
+diff --git a/board/dlink/dsm232/Kconfig b/board/dlink/dsm232/Kconfig
+new file mode 100644
+index 00000000..432e5748
+--- /dev/null
++++ b/board/dlink/dsm232/Kconfig
+@@ -0,0 +1,12 @@
++if TARGET_DSM232
++
++config SYS_BOARD
++	default "dsm232"
++
++config SYS_VENDOR
++	default "dlink"
++
++config SYS_CONFIG_NAME
++	default "dsm232"
++
++endif
+diff --git a/board/dlink/dsm232/MAINTAINERS b/board/dlink/dsm232/MAINTAINERS
+new file mode 100644
+index 00000000..7bc97cec
+--- /dev/null
++++ b/board/dlink/dsm232/MAINTAINERS
+@@ -0,0 +1,8 @@
++DLINK DSM-232 BOARD
++M:	tsuji-riya <tsuji.riya@gmail.com>
++S:	Maintained
++F:	arch/arm/mach-celestial/
++F:	board/dlink/dsm232/
++F:	configs/dsm232_defconfig
++F:	drivers/timer/cnc1800l-timer.c
++F:	include/configs/dsm232.h
+diff --git a/board/dlink/dsm232/Makefile b/board/dlink/dsm232/Makefile
+new file mode 100644
+index 00000000..a40b39a6
+--- /dev/null
++++ b/board/dlink/dsm232/Makefile
+@@ -0,0 +1,2 @@
++# SPDX-License-Identifier: GPL-2.0+
++obj-y := dsm232.o
+diff --git a/board/dlink/dsm232/dsm232.c b/board/dlink/dsm232/dsm232.c
+new file mode 100644
+index 00000000..8be1155f
+--- /dev/null
++++ b/board/dlink/dsm232/dsm232.c
+@@ -0,0 +1,63 @@
++// SPDX-License-Identifier: GPL-2.0+
++/*
++ * D-Link DSM-232 (Celestial CNC1800L)
++ */
++
++#include <fdtdec.h>
++#include <init.h>
++#include <asm/global_data.h>
++#include <asm/io.h>
++
++DECLARE_GLOBAL_DATA_PTR;
++
++/*
++ * The vendor firmware uses the top of the 256 MiB DRAM for the framebuffers,
++ * video/audio buffers, ethernet, crypto and demux (see Linux mem_define.h).
++ * Keep U-Boot (and its relocation) below that area.
++ */
++#define DSM232_USABLE_RAM_TOP	0x08900000
++
++int dram_init(void)
++{
++	return fdtdec_setup_mem_size_base();
++}
++
++int dram_init_banksize(void)
++{
++	return fdtdec_setup_memory_banksize();
++}
++
++phys_addr_t board_get_usable_ram_top(phys_size_t total_size)
++{
++	return DSM232_USABLE_RAM_TOP;
++}
++
++int board_init(void)
++{
++	return 0;
++}
++
++/* DDR, PLLs and pin muxing are already set up by the vendor miniloader. */
++void lowlevel_init(void)
++{
++}
++
++#define CNC1800L_WDT_BASE	0x801e1000
++#define WDT_CR			0x00
++#define WDT_TORR		0x04
++#define WDT_CCVR		0x08
++
++/* Reset the SoC with the watchdog, using 16 bit accesses like the vendor code. */
++void reset_cpu(void)
++{
++	void __iomem *wdt = (void __iomem *)CNC1800L_WDT_BASE;
++
++	writew(0, wdt + WDT_TORR);
++	writew(0, wdt + WDT_TORR + 2);
++	writew(0, wdt + WDT_CCVR);
++	writew(0, wdt + WDT_CCVR + 2);
++	writew(1, wdt + WDT_CR);
++
++	while (1)
++		;
++}
+diff --git a/configs/dsm232_defconfig b/configs/dsm232_defconfig
+new file mode 100644
+index 00000000..33d743bc
+--- /dev/null
++++ b/configs/dsm232_defconfig
+@@ -0,0 +1,22 @@
++CONFIG_ARM=y
++CONFIG_ARCH_CELESTIAL=y
++CONFIG_TEXT_BASE=0x02000000
++CONFIG_SYS_MALLOC_LEN=0x100000
++CONFIG_SYS_MALLOC_F_LEN=0x2000
++CONFIG_HAS_CUSTOM_SYS_INIT_SP_ADDR=y
++CONFIG_CUSTOM_SYS_INIT_SP_ADDR=0x01fff000
++CONFIG_NR_DRAM_BANKS=1
++CONFIG_ENV_SIZE=0x4000
++CONFIG_DEFAULT_DEVICE_TREE="cnc1800l-dsm232"
++CONFIG_TARGET_DSM232=y
++CONFIG_SYS_LOAD_ADDR=0x01000000
++CONFIG_SYS_ICACHE_OFF=y
++CONFIG_SYS_DCACHE_OFF=y
++CONFIG_SKIP_LOWLEVEL_INIT=y
++CONFIG_BOOTDELAY=3
++CONFIG_SYS_PROMPT="DSM232> "
++CONFIG_CMD_MEMTEST=y
++# CONFIG_CMD_BOOTEFI is not set
++# CONFIG_EFI_LOADER is not set
++# CONFIG_NET is not set
++# CONFIG_DISPLAY_CPUINFO is not set
+diff --git a/drivers/timer/Kconfig b/drivers/timer/Kconfig
+index 500a2563..a92da64f 100644
+--- a/drivers/timer/Kconfig
++++ b/drivers/timer/Kconfig
+@@ -152,6 +152,14 @@ config CADENCE_TTC_TIMER
+ 	  Enables support for the cadence ttc driver. This driver is present
+ 	  on Xilinx Zynq and ZynqMP SoCs.
+ 
++config CNC1800L_TIMER
++	bool "Celestial CNC1800L APB timer"
++	depends on TIMER && ARCH_CELESTIAL
++	default y
++	help
++	  Free running 32 bit down counter of the Celestial CNC1800L APB
++	  timer, accessed with 16 bit bus cycles.
++
+ config DESIGNWARE_APB_TIMER
+ 	bool "Designware APB Timer"
+ 	depends on TIMER && (ARCH_SOCFPGA || ARCH_ROCKCHIP)
+diff --git a/drivers/timer/Makefile b/drivers/timer/Makefile
+index d8b3f2b6..972cac31 100644
+--- a/drivers/timer/Makefile
++++ b/drivers/timer/Makefile
+@@ -14,6 +14,7 @@ obj-$(CONFIG_ATCPIT100_TIMER) += atcpit100_timer.o
+ obj-$(CONFIG_$(PHASE_)ATMEL_PIT_TIMER) += atmel_pit_timer.o
+ obj-$(CONFIG_$(PHASE_)ATMEL_TCB_TIMER) += atmel_tcb_timer.o
+ obj-$(CONFIG_CADENCE_TTC_TIMER)	+= cadence-ttc.o
++obj-$(CONFIG_CNC1800L_TIMER)	+= cnc1800l-timer.o
+ obj-$(CONFIG_DESIGNWARE_APB_TIMER)	+= dw-apb-timer.o
+ obj-$(CONFIG_GXP_TIMER)		+= gxp-timer.o
+ obj-$(CONFIG_MPC83XX_TIMER) += mpc83xx_timer.o
+diff --git a/drivers/timer/cnc1800l-timer.c b/drivers/timer/cnc1800l-timer.c
+new file mode 100644
+index 00000000..736a6e41
+--- /dev/null
++++ b/drivers/timer/cnc1800l-timer.c
+@@ -0,0 +1,75 @@
++// SPDX-License-Identifier: GPL-2.0+
++/*
++ * Celestial CNC1800L APB timer: free running 32 bit down counter.
++ * The registers are accessed with 16 bit bus cycles (as the vendor BSP does).
++ */
++
++#include <dm.h>
++#include <timer.h>
++#include <asm/io.h>
++
++#define CNC_LOADCOUNT		0x00
++#define CNC_CURRENT		0x04
++#define CNC_CTRL		0x08
++#define CNC_CTRL_ENABLE		BIT(0)
++#define CNC_CTRL_PERIODIC	BIT(1)
++#define CNC_CTRL_INTMASK	BIT(2)
++
++struct cnc1800l_timer_priv {
++	void __iomem *regs;
++};
++
++static u64 cnc1800l_timer_get_count(struct udevice *dev)
++{
++	struct cnc1800l_timer_priv *priv = dev_get_priv(dev);
++	u16 hi, lo, hi2;
++
++	hi = readw(priv->regs + CNC_CURRENT + 2);
++	lo = readw(priv->regs + CNC_CURRENT);
++	hi2 = readw(priv->regs + CNC_CURRENT + 2);
++	if (hi2 != hi)
++		lo = readw(priv->regs + CNC_CURRENT);
++
++	/* The counter counts down, the uclass wants an increasing count. */
++	return timer_conv_64(~(((u32)hi2 << 16) | lo));
++}
++
++static int cnc1800l_timer_probe(struct udevice *dev)
++{
++	struct timer_dev_priv *uc_priv = dev_get_uclass_priv(dev);
++	struct cnc1800l_timer_priv *priv = dev_get_priv(dev);
++
++	priv->regs = dev_read_addr_ptr(dev);
++	if (!priv->regs)
++		return -EINVAL;
++
++	uc_priv->clock_rate = dev_read_u32_default(dev, "clock-frequency",
++						   47250000);
++
++	writel(0, priv->regs + CNC_CTRL);
++	writew(0xffff, priv->regs + CNC_LOADCOUNT);
++	writew(0xffff, priv->regs + CNC_LOADCOUNT + 2);
++	writel(CNC_CTRL_INTMASK, priv->regs + CNC_CTRL);
++	writel(CNC_CTRL_INTMASK | CNC_CTRL_PERIODIC | CNC_CTRL_ENABLE,
++	       priv->regs + CNC_CTRL);
++
++	return 0;
++}
++
++static const struct timer_ops cnc1800l_timer_ops = {
++	.get_count = cnc1800l_timer_get_count,
++};
++
++static const struct udevice_id cnc1800l_timer_ids[] = {
++	{ .compatible = "celestial,cnc1800l-apb-timer" },
++	{ }
++};
++
++U_BOOT_DRIVER(cnc1800l_timer) = {
++	.name		= "cnc1800l_timer",
++	.id		= UCLASS_TIMER,
++	.of_match	= cnc1800l_timer_ids,
++	.probe		= cnc1800l_timer_probe,
++	.ops		= &cnc1800l_timer_ops,
++	.priv_auto	= sizeof(struct cnc1800l_timer_priv),
++};
+diff --git a/include/configs/dsm232.h b/include/configs/dsm232.h
+new file mode 100644
+index 00000000..45245dc5
+--- /dev/null
++++ b/include/configs/dsm232.h
+@@ -0,0 +1,14 @@
++/* SPDX-License-Identifier: GPL-2.0+ */
++/*
++ * Configuration for the D-Link DSM-232 (Celestial CNC1800L)
++ */
++
++#ifndef __CONFIG_DSM232_H
++#define __CONFIG_DSM232_H
++
++#include <linux/sizes.h>
++
++#define CFG_SYS_SDRAM_BASE		0x00000000
++#define CFG_SYS_UBOOT_BASE		CONFIG_TEXT_BASE
++
++#endif
+-- 
+2.43.0
+
