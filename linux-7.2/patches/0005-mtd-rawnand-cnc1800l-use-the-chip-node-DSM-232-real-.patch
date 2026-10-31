@@ -1,7 +1,7 @@
 From 1fc08a3838071191e6092d984736399a299b1ba7 Mon Sep 17 00:00:00 2001
 From: Tsuji Riya <tsuji.riya@gmail.com>
 Date: Sat, 31 Oct 2026 20:32:29 +0000
-Subject: [PATCH 5/5] mtd: rawnand: cnc1800l: use the chip node; DSM-232: real
+Subject: [PATCH 5/6] mtd: rawnand: cnc1800l: use the chip node; DSM-232: real
  NAND layout
 
 The driver passed the controller node to nand_set_flash_node(), so

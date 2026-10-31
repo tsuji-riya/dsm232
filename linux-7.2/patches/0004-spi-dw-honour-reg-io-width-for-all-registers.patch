@@ -1,7 +1,7 @@
 From e5284497eaa8516360b3d14c43c2206141608938 Mon Sep 17 00:00:00 2001
 From: Tsuji Riya <tsuji.riya@gmail.com>
 Date: Sat, 31 Oct 2026 20:29:27 +0000
-Subject: [PATCH 4/5] spi: dw: honour reg-io-width for all registers
+Subject: [PATCH 4/6] spi: dw: honour reg-io-width for all registers
 
 The binding describes reg-io-width as the I/O register width of the
 device, but only the data register used it; every other register was

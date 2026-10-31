@@ -1,0 +1,62 @@
+From bffa36a9cd99aff20af4f164d9e754a742748970 Mon Sep 17 00:00:00 2001
+From: Tsuji Riya <tsuji.riya@gmail.com>
+Date: Sat, 31 Oct 2026 21:09:08 +0000
+Subject: [PATCH 6/6] ARM: dts: cnc1800l-dsm232: SPI flash in mode 3, read-only
+
+With the 16-bit register fix the SSI transfers, but the flash answered
+only 0xff:
+
+  spi-nor spi0.0: unrecognized JEDEC id bytes: ff ff ff ff ff ff
+
+The vendor U-Boot programs CTRLR0 = 0xc7 (8-bit frames, SCPOL=1,
+SCPH=1) and BAUDR = 8. In mode 0 (SCPH=0) the DW SSI releases its
+native chip select between frames, so the flash never sees a complete
+command. Use mode 3 and 94.5MHz / 8 like the vendor.
+
+The flash holds the miniloader and the U-Boot environment. Expose only
+the dumped 128KiB, read-only, so Linux cannot brick the board.
+---
+ .../boot/dts/celestial/cnc1800l-dsm232.dts    | 26 ++++++++++++++++++-
+ 1 file changed, 25 insertions(+), 1 deletion(-)
+
+diff --git a/arch/arm/boot/dts/celestial/cnc1800l-dsm232.dts b/arch/arm/boot/dts/celestial/cnc1800l-dsm232.dts
+index 7a5550f4d..e52a0c2cd 100644
+--- a/arch/arm/boot/dts/celestial/cnc1800l-dsm232.dts
++++ b/arch/arm/boot/dts/celestial/cnc1800l-dsm232.dts
+@@ -58,8 +58,32 @@ &spi0 {
+ 	flash@0 {
+ 		compatible = "jedec,spi-nor";
+ 		reg = <0>;
+-		spi-max-frequency = <40000000>;
++		/*
++		 * Same as the vendor U-Boot (CTRLR0 = 0xc7, BAUDR = 8): mode 3,
++		 * 94.5MHz / 8. In mode 0 the native chip select is released
++		 * between frames and the flash only answers 0xff.
++		 */
++		spi-cpol;
++		spi-cpha;
++		spi-max-frequency = <12000000>;
+ 		m25p,fast-read;
++
++		partitions {
++			compatible = "fixed-partitions";
++			#address-cells = <1>;
++			#size-cells = <1>;
++
++			/*
++			 * Miniloader + U-Boot env (0xc000) and a second copy at
++			 * 0x10000, as dumped. Boot-critical: read-only, and only
++			 * this range is exposed.
++			 */
++			partition@0 {
++				label = "miniloader";
++				reg = <0x00000000 0x00020000>;
++				read-only;
++			};
++		};
+ 	};
+ };
+ 
+-- 
+2.43.0
+
