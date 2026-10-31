@@ -6,6 +6,23 @@ echo "== DSM-232 USB boot =="
 if test -z "${hdmimode}"; then setenv hdmimode 16; fi
 mw.w 0x6100000 0 1
 logo ${hdmimode} 2 0x6100000 1 1 0 0
+# The vendor hdmi.bin only knows modes up to 1080i: for 14/15/16 its AVI InfoFrame says VIC 4/3/1 with BT.601.
+# Rewrite it (SiI TX AV page 0x80400400, reg r at +4r): YCbCr444 + underscan, BT.709 16:9, IT content, real VIC.
+setenv avivic
+if test "${hdmimode}" = 16; then setenv avivic 10; setenv avisum e5; fi
+if test "${hdmimode}" = 15; then setenv avivic 1f; setenv avisum d6; fi
+if test "${hdmimode}" = 14; then setenv avivic 22; setenv avisum d3; fi
+if test -n "${avivic}"; then
+	mw.l 0x804004f8 30
+	mw.l 0x8040050c ${avisum}
+	mw.l 0x80400510 52
+	mw.l 0x80400514 a8
+	mw.l 0x80400518 80
+	mw.l 0x8040051c ${avivic}
+	mw.l 0x80400520 0
+	mw.l 0x804004f8 33
+	mw.l 0x80400120 10
+fi
 fatload usb 0:1 0x4000000 uImage
 fatload usb 0:1 0x5000000 uInitrd
 # appended to the DT bootargs (earlycon console=ttyS0,115200n8 mem=137M); last console= becomes /dev/console

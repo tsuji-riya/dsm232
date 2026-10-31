@@ -57,6 +57,7 @@ grep -qx tty1 rootfs/etc/securetty || echo tty1 >> rootfs/etc/securetty
 
 (cd rootfs && find . | LC_ALL=C sort | cpio -o -H newc -R 0:0 --quiet) | gzip -9 > initramfs.cpio.gz
 mkimage -A arm -O linux -T ramdisk -C none -a 0 -e 0 -n "${FILE%.tar.gz} dsm232" -d initramfs.cpio.gz uInitrd
+python3 -I "$HERE/../tools/display_emu/avi_check.py" "$HERE/boot.cmd"
 mkimage -A arm -O linux -T script -C none -n "dsm232 usb boot" -d "$HERE/boot.cmd" boot.scr
 
 # boot.cmd loads uInitrd at 0x5000000 and boot.scr at 0x6000000: keep the ramdisk below 16MB
