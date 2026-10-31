@@ -1,6 +1,6 @@
 # Linux v7.2 for CNC1800L (D-Link DSM-232)
 
-`patches/0001-*.patch`(+ `0002`, `0003`)を Linux v7.2 (`v7.2` タグ) に適用する。ビルドは `./build.sh` (要 `gcc-arm-linux-gnueabi`, `u-boot-tools`, `bc flex bison libssl-dev`)。
+`patches/0001-*.patch`(+ `0002`〜`0005`)を Linux v7.2 (`v7.2` タグ) に適用する。ビルドは `./build.sh` (要 `gcc-arm-linux-gnueabi`, `u-boot-tools`, `bc flex bison libssl-dev`)。
 
 ## 追加内容
 | 項目 | 内容 |

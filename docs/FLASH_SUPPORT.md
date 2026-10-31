@@ -9,8 +9,8 @@
 | データ窓 | `0xA4000000`(32MB)。データ=窓先頭、コマンド=+0x04(CLE)、アドレス=+0x08(ALE)。CS 毎に +`BIT(26)` |
 | レジスタ | `0x80100000`(0x48 byte): CEn_CFG_0 = n×0x0C(bit9 = CE 強制 Low)、STATUS 0x30(bit0=ready)、MODE 0x38、ECC_CODE 0x40、ECC_CNT 0x44、ECC_ADDR 0x48 |
 | ECC | HW 1-bit Hamming / 512 byte / 3 byte。ECC_ADDR にデータ窓アドレスを設定すると、その窓へのアクセスを監視して符号を生成 |
-| BBT | フラッシュ上 BBT、最終ブロック側(`NAND_BBT_LASTBLOCK`) |
-| パーティション(DSM-232) | `3m(Kernel),504m(fs),3m(kernel_update),2m(bad_blks_table)`(純正 bootargs) → NAND 512MB |
+| BBT | 純正はフラッシュ上 BBT、最終ブロック側(`NAND_BBT_LASTBLOCK`)。Linux の純正形式 DTS では**使わない**(認識できないと最終ブロックに新しい BBT を書くため)。工場出荷時の不良マークを RAM 上で走査する |
+| パーティション(DSM-232) | 実機は **Toshiba TC58NVG0S3E 128MiB**(起動ログ)。GPL の bootargs にある 512MB 構成は別機種のもの。ダンプと U-Boot env から: `bootloader` 0–2MB(U-Boot 0x20000/0xA0000)、`splash` 2–4MB、`factory` 4–36MB(`FACT_IMG`)、`firmware` 36–68MB(`IMG`)、`data` 68MB–0x7F80000(JFFS2)、`bbt` 最終 4 ブロック。Linux では全部 read-only |
 ミニローダーも同じコントローラの HW ECC 形式で NAND を読む(ミニローダー内 NANDC アクセスを確認)。
 
 ### SPI コントローラ
@@ -38,7 +38,7 @@ DT のプロパティは Linux と U-Boot で**同一**(U-Boot の rawnand コ�
 ## 3. 実装
 | 対象 | 追加物 |
 |---|---|
-| Linux 7.2 (`linux-7.2/patches/0002-*`) | `drivers/mtd/nand/raw/cnc1800l_nand.c`(`exec_op` 方式、旧=HW Hamming / 新=core の soft ECC)、DT バインディング `celestial,cnc1800l-nand`、`spi0`(`snps,dw-apb-ssi`, `reg-io-width=<2>`)+ `jedec,spi-nor`、NAND パーティション、`cnc1800l_defconfig` に MTD/NAND/SPI/BCH/UBI |
+| Linux 7.2 (`linux-7.2/patches/0002-*`, `0004-*`, `0005-*`) | `drivers/mtd/nand/raw/cnc1800l_nand.c`(`exec_op` 方式、旧=HW Hamming / 新=core の soft ECC)、DT バインディング `celestial,cnc1800l-nand`、`spi0`(`snps,dw-apb-ssi`, `reg-io-width=<2>`)+ `jedec,spi-nor`、NAND パーティション、`cnc1800l_defconfig` に MTD/NAND/SPI/BCH/UBI |
 | U-Boot 2026.07 (`uboot-2026.07/patches/0002-*`) | `drivers/mtd/nand/raw/cnc1800l_nand.c`(DM・旧API の `cmd_ctrl` 方式)、`designware_spi` に `reg-io-width` 対応(16bit)、DT(spi/nand/clock)、`dsm232_defconfig` と `dsm232_newecc_defconfig`(`sf`/`nand`/`mtd` コマンド有効) |
 | 検証用 | `tools/ecc_compat/` |
 
@@ -47,5 +47,5 @@ U-Boot バイナリは旧/新とも約 347KB(`0x5FF00` = 389,888 の上限内。
 ## 4. 未検証・要確認
 - NAND の CE 制御は `CEn_CFG_0` bit9 を操作(Linux は常時アサート、U-Boot は純正と同様に操作ごと)。タイミングレジスタ(CEn_CFG_1/2)は設定していない(ミニローダー/ブート済み設定を前提)。
 - 実機の NAND 型番・ページサイズ・ID が標準 ID テーブルで認識されるか(純正は `nand_ids.c` を追加改変)。認識されない場合は ID 追加が必要。
-- 16bit 版 DW SSI で DR(FIFO)も 16bit アクセスが正しいか、`dw_apb_ssi` の RX FIFO 深さ検出が通るか。
+- Linux は当初 DR 以外を 32bit でアクセスしており、実機で FIFO 深さが 0 と検出されて `CS de-assertion on Tx` → spi-nor の probe が -5 で失敗した。`patches/0004-*` で `reg-io-width=<2>` のとき全レジスタを 16bit アクセスに修正(U-Boot 側は当初から 16bit)。修正後の実機確認はまだ。
 - SPI-NAND ではなく並列 NAND 前提。

@@ -1,0 +1,87 @@
+From e5284497eaa8516360b3d14c43c2206141608938 Mon Sep 17 00:00:00 2001
+From: Tsuji Riya <tsuji.riya@gmail.com>
+Date: Sat, 31 Oct 2026 20:29:27 +0000
+Subject: [PATCH 4/5] spi: dw: honour reg-io-width for all registers
+
+The binding describes reg-io-width as the I/O register width of the
+device, but only the data register used it; every other register was
+accessed with 32-bit cycles. On the Celestial CNC1800L the SSI only
+decodes 16-bit accesses (the vendor driver uses ioread16/iowrite16 for
+all registers), so the FIFO depth probe read back 0 and the first
+spi-mem op failed with "CS de-assertion on Tx":
+
+  spi_master spi0: CS de-assertion on Tx
+  spi-nor spi0.0: probe with driver spi-nor failed with error -5
+
+Use 16-bit accesses in dw_readl()/dw_writel() when reg-io-width is 2,
+and route the FIFO level/status reads of the spi-mem path through
+dw_readl(). No in-tree DT other than cnc1800l uses reg-io-width = <2>.
+---
+ drivers/spi/spi-dw-core.c |  6 +++---
+ drivers/spi/spi-dw.h      | 11 +++++++++--
+ 2 files changed, 12 insertions(+), 5 deletions(-)
+
+diff --git a/drivers/spi/spi-dw-core.c b/drivers/spi/spi-dw-core.c
+index ad8aad958..9e22f4791 100644
+--- a/drivers/spi/spi-dw-core.c
++++ b/drivers/spi/spi-dw-core.c
+@@ -589,7 +589,7 @@ static int dw_spi_write_then_read(struct dw_spi *dws, struct spi_device *spi)
+ 	len = dws->tx_len - ((void *)buf - dws->tx);
+ 	dw_spi_set_cs(spi, false);
+ 	while (len) {
+-		entries = readl_relaxed(dws->regs + DW_SPI_TXFLR);
++		entries = dw_readl(dws, DW_SPI_TXFLR);
+ 		if (!entries) {
+ 			dev_err(&dws->ctlr->dev, "CS de-assertion on Tx\n");
+ 			return -EIO;
+@@ -607,9 +607,9 @@ static int dw_spi_write_then_read(struct dw_spi *dws, struct spi_device *spi)
+ 	len = dws->rx_len;
+ 	buf = dws->rx;
+ 	while (len) {
+-		entries = readl_relaxed(dws->regs + DW_SPI_RXFLR);
++		entries = dw_readl(dws, DW_SPI_RXFLR);
+ 		if (!entries) {
+-			sts = readl_relaxed(dws->regs + DW_SPI_RISR);
++			sts = dw_readl(dws, DW_SPI_RISR);
+ 			if (sts & DW_SPI_INT_RXOI) {
+ 				dev_err(&dws->ctlr->dev, "FIFO overflow on Rx\n");
+ 				return -EIO;
+diff --git a/drivers/spi/spi-dw.h b/drivers/spi/spi-dw.h
+index a9d055f9c..68f005a45 100644
+--- a/drivers/spi/spi-dw.h
++++ b/drivers/spi/spi-dw.h
+@@ -163,7 +163,7 @@ struct dw_spi {
+ 	u32			max_mem_freq;	/* max mem-ops bus freq */
+ 	u32			max_freq;	/* max bus freq supported */
+ 
+-	u32			reg_io_width;	/* DR I/O width in bytes */
++	u32			reg_io_width;	/* register I/O width in bytes */
+ 	u32			num_cs;		/* chip select lines */
+ 	u16			bus_num;
+ 	void (*set_cs)(struct spi_device *spi, bool enable);
+@@ -202,14 +202,21 @@ struct dw_spi {
+ #endif
+ };
+ 
++/* Some integrations (e.g. Celestial CNC1800L) only decode 16-bit register accesses */
+ static inline u32 dw_readl(struct dw_spi *dws, u32 offset)
+ {
++	if (dws->reg_io_width == 2)
++		return __raw_readw(dws->regs + offset);
++
+ 	return __raw_readl(dws->regs + offset);
+ }
+ 
+ static inline void dw_writel(struct dw_spi *dws, u32 offset, u32 val)
+ {
+-	__raw_writel(val, dws->regs + offset);
++	if (dws->reg_io_width == 2)
++		__raw_writew(val, dws->regs + offset);
++	else
++		__raw_writel(val, dws->regs + offset);
+ }
+ 
+ static inline u32 dw_read_io_reg(struct dw_spi *dws, u32 offset)
+-- 
+2.43.0
+

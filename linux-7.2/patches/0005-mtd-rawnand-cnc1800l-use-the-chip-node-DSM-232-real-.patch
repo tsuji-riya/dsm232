@@ -1,0 +1,159 @@
+From 1fc08a3838071191e6092d984736399a299b1ba7 Mon Sep 17 00:00:00 2001
+From: Tsuji Riya <tsuji.riya@gmail.com>
+Date: Sat, 31 Oct 2026 20:32:29 +0000
+Subject: [PATCH 5/5] mtd: rawnand: cnc1800l: use the chip node; DSM-232: real
+ NAND layout
+
+The driver passed the controller node to nand_set_flash_node(), so
+nand-ecc-*, nand-on-flash-bbt and the partitions under nand@0 were
+never seen, and ofpart parsed nand@0 itself as a partition:
+
+  ofpart partition .../nand@0 (.../nand-controller@a4000000) #size-cells
+  is wrongly set to <0>, assuming <1> for parsing partitions.
+  error parsing ofpart partition ...
+
+Use the first available child node as the flash node. This also makes
+the soft BCH settings of cnc1800l-dsm232-newecc.dts take effect.
+
+The board has a 128MiB Toshiba TC58NVG0S3E, not the 512MiB layout from
+the vendor bootargs. Replace the partitions with the layout measured on
+a dump of the vendor firmware and its U-Boot environment, all
+read-only so the vendor firmware stays bootable.
+
+Leave nand-on-flash-bbt out of the vendor-format DTS: if Linux did not
+recognise the vendor table it would write a new one over the last
+blocks. The newecc DTS (whole chip reformatted) enables it and drops
+the partitions.
+---
+ .../dts/celestial/cnc1800l-dsm232-newecc.dts  |  3 ++
+ .../boot/dts/celestial/cnc1800l-dsm232.dts    | 48 ++++++++++++++-----
+ drivers/mtd/nand/raw/cnc1800l_nand.c          |  9 +++-
+ 3 files changed, 46 insertions(+), 14 deletions(-)
+
+diff --git a/arch/arm/boot/dts/celestial/cnc1800l-dsm232-newecc.dts b/arch/arm/boot/dts/celestial/cnc1800l-dsm232-newecc.dts
+index 0feb986f9..809597c6e 100644
+--- a/arch/arm/boot/dts/celestial/cnc1800l-dsm232-newecc.dts
++++ b/arch/arm/boot/dts/celestial/cnc1800l-dsm232-newecc.dts
+@@ -19,5 +19,8 @@ nand@0 {
+ 		nand-ecc-algo = "bch";
+ 		nand-ecc-strength = <4>;
+ 		nand-ecc-step-size = <512>;
++		/* the whole chip is reformatted: one writable device, BBT on flash */
++		nand-on-flash-bbt;
++		/delete-node/ partitions;
+ 	};
+ };
+diff --git a/arch/arm/boot/dts/celestial/cnc1800l-dsm232.dts b/arch/arm/boot/dts/celestial/cnc1800l-dsm232.dts
+index 5eada870f..7a5550f4d 100644
+--- a/arch/arm/boot/dts/celestial/cnc1800l-dsm232.dts
++++ b/arch/arm/boot/dts/celestial/cnc1800l-dsm232.dts
+@@ -68,13 +68,16 @@ &nand {
+ 
+ 	nand@0 {
+ 		reg = <0>;
+-		nand-on-flash-bbt;
+ 
+ 		/*
+ 		 * LEGACY ECC (default): SoC 1-bit Hamming / 512 bytes, the
+ 		 * vendor on-flash format. Required for every partition that
+ 		 * the miniloader / vendor boot loaders read, and keeps
+ 		 * existing flash contents readable.
++		 *
++		 * No nand-on-flash-bbt: if Linux did not recognise the vendor
++		 * table it would write a new one over the last blocks. Bad
++		 * blocks are found by scanning the factory markers instead.
+ 		 */
+ 
+ 		partitions {
+@@ -82,22 +85,41 @@ partitions {
+ 			#address-cells = <1>;
+ 			#size-cells = <1>;
+ 
+-			/* layout from the vendor bootargs of the DSM-232 */
++			/*
++			 * Toshiba TC58NVG0S3E, 128MiB. Layout measured on a
++			 * dump of the vendor firmware and its U-Boot env
++			 * (show_logo, FACT_IMG, IMG/WORK_IMG, IMG_SIZE).
++			 * Read-only so that the vendor firmware stays bootable.
++			 */
+ 			partition@0 {
+-				label = "kernel";
+-				reg = <0x00000000 0x00300000>;
++				label = "bootloader";	/* U-Boot at 0x20000 and 0xa0000 */
++				reg = <0x00000000 0x00200000>;
++				read-only;
+ 			};
+-			partition@300000 {
+-				label = "fs";
+-				reg = <0x00300000 0x1f800000>;
++			partition@200000 {
++				label = "splash";
++				reg = <0x00200000 0x00200000>;
++				read-only;
+ 			};
+-			partition@1fb00000 {
+-				label = "kernel_update";
+-				reg = <0x1fb00000 0x00300000>;
++			partition@400000 {
++				label = "factory";
++				reg = <0x00400000 0x02000000>;
++				read-only;
+ 			};
+-			partition@1fe00000 {
+-				label = "bad_blks_table";
+-				reg = <0x1fe00000 0x00200000>;
++			partition@2400000 {
++				label = "firmware";
++				reg = <0x02400000 0x02000000>;
++				read-only;
++			};
++			partition@4400000 {
++				label = "data";		/* JFFS2 */
++				reg = <0x04400000 0x03b80000>;
++				read-only;
++			};
++			partition@7f80000 {
++				label = "bbt";
++				reg = <0x07f80000 0x00080000>;
++				read-only;
+ 			};
+ 		};
+ 	};
+diff --git a/drivers/mtd/nand/raw/cnc1800l_nand.c b/drivers/mtd/nand/raw/cnc1800l_nand.c
+index ea6d9264a..8e050845a 100644
+--- a/drivers/mtd/nand/raw/cnc1800l_nand.c
++++ b/drivers/mtd/nand/raw/cnc1800l_nand.c
+@@ -28,6 +28,7 @@
+ #include <linux/mtd/mtd.h>
+ #include <linux/mtd/partitions.h>
+ #include <linux/mtd/rawnand.h>
++#include <linux/of.h>
+ #include <linux/platform_device.h>
+ #include <linux/slab.h>
+ 
+@@ -268,6 +269,7 @@ static int cnc_nand_probe(struct platform_device *pdev)
+ 	struct resource *res;
+ 	struct cnc_nand *nand;
+ 	struct mtd_info *mtd;
++	struct device_node *np;
+ 	int ret;
+ 
+ 	nand = devm_kzalloc(dev, sizeof(*nand), GFP_KERNEL);
+@@ -290,8 +292,13 @@ static int cnc_nand_probe(struct platform_device *pdev)
+ 	nand_controller_init(&nand->controller);
+ 	nand->controller.ops = &cnc_nand_ops;
+ 
++	/* the chip node (nand@0) carries nand-ecc-*, nand-on-flash-bbt and partitions */
++	np = of_get_next_available_child(dev->of_node, NULL);
++	if (!np)
++		return dev_err_probe(dev, -ENODEV, "no NAND chip node\n");
++
+ 	nand->chip.controller = &nand->controller;
+-	nand_set_flash_node(&nand->chip, dev->of_node);
++	nand_set_flash_node(&nand->chip, np);
+ 
+ 	mtd = nand_to_mtd(&nand->chip);
+ 	mtd->dev.parent = dev;
+-- 
+2.43.0
+
