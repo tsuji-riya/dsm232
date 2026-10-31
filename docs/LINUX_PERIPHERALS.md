@@ -192,8 +192,21 @@ SYS_CTRL1 を直した後、テレビは 1080p60 で同期するようになっ�
 - `hdcpoff=1` の試験では、`hdmi.bin` の HDCP 認証が失敗した回に、`hdmi.bin` 自身が SYS_CTRL1 を 0x36(PD#=0、電源断)にしていた。純正は HDCP が通らないと出力を止める作りと見られる。
 - `steps` で切り分けた結果(`logo` で映っている状態の上から実行): DF だけ = 映る。HDMI TX のレジスタだけ = 黒。
 - U-Boot で `logo` を実行し、上半分を赤く塗った後に 1 か所ずつ書き換えた結果: HDCP_CTRL=0 で黒になった。SRST パルスでは色化けし(暗号化中のリセット)、Audio InfoFrame を止めても変化はなかった。
-- HDCP_CTRL=0 は HDCP ブロックをリセットに保持する(CP_RESETN=0)。映像がこのブロックを通るため黒になると推測し、0x04(CP_RESETN=1、暗号化なし)に変えた。**未検証**。
-- 原因の段階を特定するため、`cnc1800l_display.steps=<ビットマスク>` で一部の段階だけを実行できるようにした。bit0 = クロック、bit1 = DF、bit2 = HDMI ブロックのリセット、bit3 = HDMI TX のレジスタ。既定は 0xF(全段階)。
+- HDCP_CTRL=0x04(HDCP ブロックはリセット解除、暗号化なし)でも黒だった。**送信部は HDCP で暗号化していないと映像の代わりにブランク色を出す**と判断した。純正 Linux ドライバ `SiITX.c` `siiTX_HDMI_Init()` にも「set the default output color to black when HDCP authentication not success」とある。
+- そこで HDCP 1.x 認証を実装した(`steps` の bit4)。純正 `SiITXHDCP.c` `siiTXHDCP_Authentication()` と同じ手順で、次の順に処理する。**未検証**。
+  1. DDC マスタ(72:ED–F5)で受信側の BKSV を読み、1 と 0 が 20 個ずつあるか確認する
+  2. CP_RESETN を立て、BCAPS で受信側がリピータかを見る
+  3. AN を生成して受信側に書き、送信部の AKSV も受信側に書く
+  4. 150ms 待ってから、BKSV を送信部に書く(R0 の計算が始まる)
+  5. R0 を照合して一致すれば ENC_EN を立てる。前後は AVMUTE で挟む
+  - HDCP 鍵は送信部が内蔵している(AKSV がコールド状態でも読める)。
+  - リピータ用の第 2 段階(SHA)と、Ri によるリンク監視は実装していない。そのため、テレビを挿し直すと黒に戻る。
+- UART に `cnc1800l-display: HDCP authenticated` が出れば認証成功。`HDCP authentication failed (エラー番号)` の番号の意味は次のとおり。
+  - -19: HPD なし
+  - -5: DDC 失敗
+  - -22: BKSV 異常
+  - -13: R0 不一致
+- 原因の段階を特定するため、`cnc1800l_display.steps=<ビットマスク>` で一部の段階だけを実行できるようにした。bit0 = クロック、bit1 = DF、bit2 = HDMI ブロックのリセット、bit3 = HDMI TX のレジスタ、bit4 = HDCP 認証。既定は 0x1F(全段階)。
 
 ### 未確認・限界
 - エミュレータは未知のレジスタを 0 として読むため、read-modify-write の結果は「リセット値が 0」と仮定したものになっている。DF と HDMI の書き込みは、その結果の値をそのまま書いている。

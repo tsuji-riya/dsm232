@@ -1,6 +1,6 @@
-From c0056daad043aeeb4629ef26e96d11f35361b260 Mon Sep 17 00:00:00 2001
+From 433deed6063ed03fed54e0ffbe5d14b3b2b9b225 Mon Sep 17 00:00:00 2001
 From: Tsuji Riya <tsuji.riya@gmail.com>
-Date: Sat, 31 Oct 2026 23:33:24 +0000
+Date: Sat, 31 Oct 2026 23:43:20 +0000
 Subject: [PATCH 10/10] ARM: cnc1800l: bring up HDMI 1080p60 without U-Boot
 
 The DSM-232 console relied on the vendor U-Boot "logo" command to set
@@ -28,13 +28,20 @@ DF, HDMI block reset, HDMI TX registers) to bisect on hardware.
 
 HDCP_CTRL is 0x04 (cipher block out of reset, no encryption): writing 0
 over a working U-Boot picture turns it black on hardware.
+
+The transmitter only shows the picture with HDCP encryption on (the
+vendor sets the blank colour to black "when HDCP authentication not
+success"; clearing ENC_EN over a working picture turns it black), so
+authenticate as SiITXHDCP.c siiTXHDCP_Authentication() does: BKSV over
+the DDC master, An and Aksv to the receiver, R0 compared, then ENC_EN,
+with AVMUTE around it. No repeater part 2 and no Ri link check.
 ---
  .../boot/dts/celestial/cnc1800l-dsm232.dts    |  10 +-
  arch/arm/mach-celestial/Makefile              |   2 +-
- arch/arm/mach-celestial/cnc1800l-display.c    | 299 ++++++++++++++++++
+ arch/arm/mach-celestial/cnc1800l-display.c    | 469 ++++++++++++++++++
  arch/arm/mach-celestial/cnc1800l.c            |   4 +
  arch/arm/mach-celestial/common.h              |   7 +
- 5 files changed, 316 insertions(+), 6 deletions(-)
+ 5 files changed, 486 insertions(+), 6 deletions(-)
  create mode 100644 arch/arm/mach-celestial/cnc1800l-display.c
  create mode 100644 arch/arm/mach-celestial/common.h
 
@@ -69,10 +76,10 @@ index 470e01a5d..17a99c395 100644
 +obj-$(CONFIG_ARCH_CELESTIAL) += cnc1800l.o cnc1800l-display.o
 diff --git a/arch/arm/mach-celestial/cnc1800l-display.c b/arch/arm/mach-celestial/cnc1800l-display.c
 new file mode 100644
-index 000000000..b6643f485
+index 000000000..dafcfcf77
 --- /dev/null
 +++ b/arch/arm/mach-celestial/cnc1800l-display.c
-@@ -0,0 +1,299 @@
+@@ -0,0 +1,469 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
 + * CNC1800L HDMI output without the vendor U-Boot "logo" command:
@@ -94,6 +101,8 @@ index 000000000..b6643f485
 +#include <linux/bits.h>
 +#include <linux/bug.h>
 +#include <linux/delay.h>
++#include <linux/errno.h>
++#include <linux/bitops.h>
 +#include <linux/io.h>
 +#include <linux/moduleparam.h>
 +#include <linux/of.h>
@@ -140,27 +149,60 @@ index 000000000..b6643f485
 +#define HDMI_BASE		0x80400000
 +#define  SYS_SRST		0x05
 +#define  SYS_SYS_CTRL1		0x08
++#define  SYS_SYS_STAT		0x09
++#define   SYS_STAT_HPD		BIT(1)
 +#define  SYS_HDCP_CTRL		0x0f
++#define   HDCP_ENC_EN		BIT(0)
++#define   HDCP_RI_READY		BIT(1)
++#define   HDCP_CP_RESETN	BIT(2)
++#define   HDCP_AN_STOP		BIT(3)
++#define   HDCP_RX_REPEATER	BIT(4)
++#define   HDCP_BKSV_ERROR	BIT(5)
++#define  SYS_HDCP_BKSV		0x10	/* 5 bytes */
++#define  SYS_HDCP_AN		0x15	/* 8 bytes */
++#define  SYS_HDCP_AKSV		0x1d	/* 5 bytes */
++#define  SYS_HDCP_RI		0x22	/* 2 bytes */
 +#define  SYS_DE_CTRL		0x33
 +#define  SYS_VID_CTRL		0x48
 +#define  SYS_VID_ACEN		0x49
 +#define  SYS_VID_MODE		0x4a
 +#define  SYS_VID_BLANK1		0x4b
 +#define  SYS_TMDS_CTRL		0x82
++/* DDC master (SiITXHDCP.h MASTER_BASE): slave, segment, offset, count LSB/MSB */
++#define  SYS_DDC_ADDR		0xed
++#define  SYS_DDC_STATUS		0xf2
++#define   DDC_IN_PROGRESS	BIT(4)
++#define   DDC_NO_ACK		BIT(5)
++#define  SYS_DDC_CMD		0xf3
++#define   DDC_CMD_SEQ_RD	0x02
++#define   DDC_CMD_SEQ_WR	0x06
++#define   DDC_CMD_CLEAR_FIFO	0x09
++#define   DDC_CMD_ABORT		0x0f
++#define  SYS_DDC_DATA		0xf4
++#define  SYS_DDC_FIFO_CNT	0xf5
 +#define  AV_HDMI_CTRL		0x2f
 +#define  AV_PB_CTRL1		0x3e
 +#define  AV_PB_CTRL2		0x3f
 +#define  AV_AVI_TYPE		0x40
 +#define  AV_CP_BYTE1		0xdf
 +
++/* HDCP receiver on DDC (SiITXHDCP.h) */
++#define HDCP_RX			0x74
++#define  RX_BKSV		0x00
++#define  RX_RI			0x08
++#define  RX_AKSV		0x10
++#define  RX_AN			0x18
++#define  RX_BCAPS		0x40
++#define   BCAPS_REPEATER	BIT(6)
++
 +static bool skip;
 +module_param(skip, bool, 0444);
 +MODULE_PARM_DESC(skip, "keep the HDMI output set up by U-Boot");
 +
-+/* bisecting on hardware: bit 0 clocks, 1 DF, 2 HDMI block reset, 3 HDMI TX registers */
-+static uint steps = 0xf;
++/* bisecting on hardware: bit 0 clocks, 1 DF, 2 HDMI block reset, 3 HDMI TX registers, 4 HDCP */
++static uint steps = 0x1f;
 +module_param(steps, uint, 0444);
-+MODULE_PARM_DESC(steps, "set-up steps to run (bit mask, default 0xf)");
++MODULE_PARM_DESC(steps, "set-up steps to run (bit mask, default 0x1f)");
 +
 +static bool dump;
 +module_param(dump, bool, 0444);
@@ -238,6 +280,22 @@ index 000000000..b6643f485
 +	writel(val, hdmi + 0x400 + reg * 4);
 +}
 +
++static u8 hdmi_rd(void __iomem *hdmi, unsigned int reg)
++{
++	return readl(hdmi + reg * 4);
++}
++
++/* general control packet, SiITXInfoPkts.c siiTXSendCP_Packet() */
++static void hdmi_avmute(void __iomem *hdmi, bool mute)
++{
++	u8 ctrl = readl(hdmi + 0x400 + AV_PB_CTRL2 * 4) & ~0x0c;
++
++	hdmi_av(hdmi, AV_PB_CTRL2, ctrl);
++	hdmi_av(hdmi, AV_CP_BYTE1, mute ? 0x01 : 0x10);
++	msleep(50);	/* vendor: without it, AV mute/unmute causes snow on the TV */
++	hdmi_av(hdmi, AV_PB_CTRL2, ctrl | 0x0c);	/* on, every frame */
++}
++
 +static void __init cnc1800l_display_hdmi(void __iomem *hdmi)
 +{
 +	/*
@@ -268,13 +326,7 @@ index 000000000..b6643f485
 +	hdmi_sys(hdmi, SYS_SYS_CTRL1, 0x37);
 +	hdmi_sys(hdmi, SYS_SRST, 0x03);		/* software and FIFO reset */
 +	hdmi_sys(hdmi, SYS_SRST, 0x00);
-+	/*
-+	 * HDCP_CTRL: CP_RESETN (bit 2) on, ENC_EN (bit 0) off. With the HDCP
-+	 * block held in reset (0, what hdmi.bin writes on its non-HDCP path)
-+	 * the picture is black on hardware: guess (推測) that the video passes
-+	 * through the cipher block, which must run even without encryption.
-+	 */
-+	hdmi_sys(hdmi, SYS_HDCP_CTRL, 0x04);
++	hdmi_sys(hdmi, SYS_HDCP_CTRL, 0x00);	/* HDCP reset, see cnc1800l_display_hdcp() */
 +
 +	for (i = 0; i < ARRAY_SIZE(avi); i++)
 +		sum += avi[i];
@@ -286,6 +338,119 @@ index 000000000..b6643f485
 +
 +	hdmi_av(hdmi, AV_CP_BYTE1, 0x10);	/* general control packet: clear AVMUTE */
 +	hdmi_av(hdmi, AV_PB_CTRL2, 0x0c);	/* ... on, every frame */
++}
++
++/* SiITXHDCP.c BlockRead_MDDC() / BlockWrite_MDDC() for the HDCP receiver */
++static void ddc_start(void __iomem *hdmi, u8 off, u8 len)
++{
++	hdmi_sys(hdmi, SYS_DDC_CMD, DDC_CMD_CLEAR_FIFO);
++	hdmi_sys(hdmi, SYS_DDC_ADDR, HDCP_RX);
++	hdmi_sys(hdmi, SYS_DDC_ADDR + 1, 0);
++	hdmi_sys(hdmi, SYS_DDC_ADDR + 2, off);
++	hdmi_sys(hdmi, SYS_DDC_ADDR + 3, len);
++	hdmi_sys(hdmi, SYS_DDC_ADDR + 4, 0);
++}
++
++static int ddc_done(void __iomem *hdmi, bool ok)
++{
++	if (ok && !(hdmi_rd(hdmi, SYS_DDC_STATUS) & DDC_NO_ACK))
++		return 0;
++	hdmi_sys(hdmi, SYS_DDC_CMD, DDC_CMD_ABORT);
++	return -EIO;
++}
++
++static int hdcp_rx_read(void __iomem *hdmi, u8 off, u8 *buf, u8 len)
++{
++	int i = 0, tries = len + 50;
++
++	ddc_start(hdmi, off, len);
++	hdmi_sys(hdmi, SYS_DDC_CMD, DDC_CMD_SEQ_RD);
++	while (i < len && tries > 0) {
++		if (hdmi_rd(hdmi, SYS_DDC_FIFO_CNT)) {
++			buf[i++] = hdmi_rd(hdmi, SYS_DDC_DATA);
++		} else {
++			tries--;
++			usleep_range(2000, 3000);
++		}
++	}
++	return ddc_done(hdmi, i == len);
++}
++
++static int hdcp_rx_write(void __iomem *hdmi, u8 off, const u8 *buf, u8 len)
++{
++	int i, tries = len + 50;
++
++	ddc_start(hdmi, off, len);
++	hdmi_sys(hdmi, SYS_DDC_CMD, DDC_CMD_CLEAR_FIFO);
++	for (i = 0; i < len; i++)
++		hdmi_sys(hdmi, SYS_DDC_DATA, buf[i]);
++	hdmi_sys(hdmi, SYS_DDC_CMD, DDC_CMD_SEQ_WR);
++	while ((hdmi_rd(hdmi, SYS_DDC_STATUS) & DDC_IN_PROGRESS) && --tries)
++		usleep_range(2000, 3000);
++	return ddc_done(hdmi, tries);
++}
++
++/*
++ * The transmitter sends the blank colour (VID_BLANK) instead of the picture
++ * unless HDCP encryption is on: hdmi.bin and the vendor Linux driver set the
++ * blank colour to black "when HDCP authentication not success", and clearing
++ * ENC_EN over a working picture turns it black. HDCP 1.x authentication as
++ * in SiITXHDCP.c siiTXHDCP_Authentication() (no repeater part 2, no Ri link
++ * check); the transmitter holds the keys.
++ */
++static int __init cnc1800l_display_hdcp(void __iomem *hdmi)
++{
++	u8 bksv[5], an[8], aksv[5], ri_rx[2], ri_tx[2], bcaps, ctrl;
++	int i, ones = 0;
++
++	if (!(hdmi_rd(hdmi, SYS_SYS_STAT) & SYS_STAT_HPD))
++		return -ENODEV;
++	if (hdcp_rx_read(hdmi, RX_BKSV, bksv, 5))
++		return -EIO;
++	for (i = 0; i < 5; i++)
++		ones += hweight8(bksv[i]);
++	if (ones != 20)		/* a KSV has 20 ones and 20 zeros */
++		return -EINVAL;
++
++	ctrl = hdmi_rd(hdmi, SYS_HDCP_CTRL) | HDCP_CP_RESETN;
++	hdmi_sys(hdmi, SYS_HDCP_CTRL, ctrl);
++	if (hdcp_rx_read(hdmi, RX_BCAPS, &bcaps, 1))
++		return -EIO;
++	if (bcaps & BCAPS_REPEATER)
++		ctrl |= HDCP_RX_REPEATER;
++	else
++		ctrl &= ~HDCP_RX_REPEATER;
++	/* GenerateAN(): run the random number generator for a while */
++	hdmi_sys(hdmi, SYS_HDCP_CTRL, ctrl & ~HDCP_AN_STOP);
++	msleep(10);	/* the original Silicon Image code; the vendor waits 1s */
++	hdmi_sys(hdmi, SYS_HDCP_CTRL, ctrl | HDCP_AN_STOP);
++
++	for (i = 0; i < 8; i++)
++		an[i] = hdmi_rd(hdmi, SYS_HDCP_AN + i);
++	if (hdcp_rx_write(hdmi, RX_AN, an, 8))
++		return -EIO;
++	for (i = 0; i < 5; i++)
++		aksv[i] = hdmi_rd(hdmi, SYS_HDCP_AKSV + i);
++	if (hdcp_rx_write(hdmi, RX_AKSV, aksv, 5))
++		return -EIO;
++	msleep(150);	/* vendor delay before R0 */
++
++	/* writing BKSV into the transmitter starts its R0 calculation */
++	for (i = 0; i < 5; i++)
++		hdmi_sys(hdmi, SYS_HDCP_BKSV + i, bksv[i]);
++	if (hdmi_rd(hdmi, SYS_HDCP_CTRL) & HDCP_BKSV_ERROR)
++		return -EINVAL;
++	for (i = 0; i < 100 && !(hdmi_rd(hdmi, SYS_HDCP_CTRL) & HDCP_RI_READY); i++)
++		msleep(5);
++	if (hdcp_rx_read(hdmi, RX_RI, ri_rx, 2))
++		return -EIO;
++	ri_tx[0] = hdmi_rd(hdmi, SYS_HDCP_RI);
++	ri_tx[1] = hdmi_rd(hdmi, SYS_HDCP_RI + 1);
++	if (ri_rx[0] != ri_tx[0] || ri_rx[1] != ri_tx[1])
++		return -EACCES;
++
++	hdmi_sys(hdmi, SYS_HDCP_CTRL, hdmi_rd(hdmi, SYS_HDCP_CTRL) | HDCP_ENC_EN);
++	return 0;
 +}
 +
 +static void __init dump32(const char *tag, void __iomem *base, u32 phys, u32 start, u32 end)
@@ -362,6 +527,18 @@ index 000000000..b6643f485
 +	}
 +	if (steps & BIT(3))
 +		cnc1800l_display_hdmi(hdmi);
++	if (steps & BIT(4)) {
++		int ret;
++
++		/* siiTXHDCP_AuthenticationPart1(): encryption changes under AVMUTE */
++		hdmi_avmute(hdmi, true);
++		ret = cnc1800l_display_hdcp(hdmi);
++		hdmi_avmute(hdmi, false);
++		if (ret)
++			pr_warn("cnc1800l-display: HDCP authentication failed (%d), the picture stays blank\n", ret);
++		else
++			pr_info("cnc1800l-display: HDCP authenticated\n");
++	}
 +	pr_info("cnc1800l-display: HDMI 1920x1080p60, RGB565 at %#x (steps %#x)\n", FB_BASE, steps);
 +	if (dump)
 +		cnc1800l_display_dump("after", clk, df, hdmi);
