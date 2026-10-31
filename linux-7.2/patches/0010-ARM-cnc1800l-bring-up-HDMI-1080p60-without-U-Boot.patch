@@ -1,6 +1,6 @@
-From 5ad84cb24ca8016ba68561b2f7a14339c92a6186 Mon Sep 17 00:00:00 2001
+From 55387c7d677b904b048487222c7f4a5cd473aec3 Mon Sep 17 00:00:00 2001
 From: Tsuji Riya <tsuji.riya@gmail.com>
-Date: Sat, 31 Oct 2026 22:48:51 +0000
+Date: Sat, 31 Oct 2026 23:03:08 +0000
 Subject: [PATCH 10/10] ARM: cnc1800l: bring up HDMI 1080p60 without U-Boot
 
 The DSM-232 console relied on the vendor U-Boot "logo" command to set
@@ -18,13 +18,17 @@ cnc1800l_display.skip=1 keeps what U-Boot set up instead.
 cnc1800l_display.dump=1 prints the clock, pin mux, DF and HDMI TX
 registers before (and after) the set-up, to compare with the state left
 by U-Boot "logo".
+
+On hardware, SYS_CTRL1 must keep HEN/VEN (0x37, as left by hdmi.bin)
+and the DF graphics format keeps AlphaIsValid (0x12): with 0x07 the
+transmitter measured no input timing and the TV got no signal.
 ---
  .../boot/dts/celestial/cnc1800l-dsm232.dts    |  10 +-
  arch/arm/mach-celestial/Makefile              |   2 +-
- arch/arm/mach-celestial/cnc1800l-display.c    | 279 ++++++++++++++++++
+ arch/arm/mach-celestial/cnc1800l-display.c    | 284 ++++++++++++++++++
  arch/arm/mach-celestial/cnc1800l.c            |   4 +
  arch/arm/mach-celestial/common.h              |   7 +
- 5 files changed, 296 insertions(+), 6 deletions(-)
+ 5 files changed, 301 insertions(+), 6 deletions(-)
  create mode 100644 arch/arm/mach-celestial/cnc1800l-display.c
  create mode 100644 arch/arm/mach-celestial/common.h
 
@@ -59,10 +63,10 @@ index 470e01a5d..17a99c395 100644
 +obj-$(CONFIG_ARCH_CELESTIAL) += cnc1800l.o cnc1800l-display.o
 diff --git a/arch/arm/mach-celestial/cnc1800l-display.c b/arch/arm/mach-celestial/cnc1800l-display.c
 new file mode 100644
-index 000000000..d70322356
+index 000000000..26607cccc
 --- /dev/null
 +++ b/arch/arm/mach-celestial/cnc1800l-display.c
-@@ -0,0 +1,279 @@
+@@ -0,0 +1,284 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
 + * CNC1800L HDMI output without the vendor U-Boot "logo" command:
@@ -200,7 +204,7 @@ index 000000000..d70322356
 +	/* CS_LoadDisplay(): graphics layer 0 shows the framebuffer */
 +	writel(1, df + DF_UPDATE);
 +	writel(0, df + DF_GFX0_CTRL);
-+	writel(2, df + DF_GFX0_FORMAT);		/* RGB565 */
++	writel(0x12, df + DF_GFX0_FORMAT);	/* RGB565, AlphaIsValid (kept by the vendor RMW) */
 +	writel(FB_BASE, df + DF_GFX0_ADDR);
 +	writel(FB_PITCH, df + DF_GFX0_PITCH);
 +	writel(1919 << 16, df + DF_GFX0_X);	/* end (inclusive), start */
@@ -239,7 +243,12 @@ index 000000000..d70322356
 +	udelay(10);	/* guess (推測): hdmi.bin's delay is unknown */
 +	rmw(clk + CLOCK_SOFT_RESET, 0, BIT(19));
 +
-+	hdmi_sys(hdmi, SYS_SYS_CTRL1, 0x01);	/* PD# = 1: powered up */
++	/*
++	 * SYS_CTRL1: PD# (0), EDGE (1), BSEL (2), HEN/VEN (4/5, take HSYNC and
++	 * VSYNC from the DF). hdmi.bin keeps HEN/VEN of the reset value with
++	 * read-modify-writes; 0x37 is what it leaves on hardware.
++	 */
++	hdmi_sys(hdmi, SYS_SYS_CTRL1, 0x31);
 +	hdmi_sys(hdmi, SYS_VID_BLANK1, 0x80);	/* blanking = YCbCr black */
 +	hdmi_sys(hdmi, SYS_VID_BLANK1 + 1, 0x10);
 +	hdmi_sys(hdmi, SYS_VID_BLANK1 + 2, 0x80);
@@ -247,10 +256,10 @@ index 000000000..d70322356
 +	hdmi_av(hdmi, AV_HDMI_CTRL, 0x01);	/* HDMI, not DVI */
 +	hdmi_sys(hdmi, SYS_DE_CTRL, 0x00);
 +	hdmi_sys(hdmi, SYS_VID_MODE, 0x00);	/* no conversion */
-+	hdmi_sys(hdmi, SYS_SYS_CTRL1, 0x05);
++	hdmi_sys(hdmi, SYS_SYS_CTRL1, 0x35);
 +	hdmi_sys(hdmi, SYS_VID_CTRL, 0x00);
 +	hdmi_sys(hdmi, SYS_VID_ACEN, 0x40);
-+	hdmi_sys(hdmi, SYS_SYS_CTRL1, 0x07);
++	hdmi_sys(hdmi, SYS_SYS_CTRL1, 0x37);
 +	hdmi_sys(hdmi, SYS_SRST, 0x03);		/* software and FIFO reset */
 +	hdmi_sys(hdmi, SYS_SRST, 0x00);
 +	hdmi_sys(hdmi, SYS_HDCP_CTRL, 0x00);	/* no encryption */
