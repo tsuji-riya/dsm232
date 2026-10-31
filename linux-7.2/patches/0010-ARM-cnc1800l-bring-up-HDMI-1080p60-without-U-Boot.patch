@@ -1,6 +1,6 @@
-From 433deed6063ed03fed54e0ffbe5d14b3b2b9b225 Mon Sep 17 00:00:00 2001
+From ff38acf9edf955689bd7858fe80d748769af7863 Mon Sep 17 00:00:00 2001
 From: Tsuji Riya <tsuji.riya@gmail.com>
-Date: Sat, 31 Oct 2026 23:43:20 +0000
+Date: Sat, 31 Oct 2026 23:50:11 +0000
 Subject: [PATCH 10/10] ARM: cnc1800l: bring up HDMI 1080p60 without U-Boot
 
 The DSM-232 console relied on the vendor U-Boot "logo" command to set
@@ -35,13 +35,16 @@ success"; clearing ENC_EN over a working picture turns it black), so
 authenticate as SiITXHDCP.c siiTXHDCP_Authentication() does: BKSV over
 the DDC master, An and Aksv to the receiver, R0 compared, then ENC_EN,
 with AVMUTE around it. No repeater part 2 and no Ri link check.
+The receiver does not answer on DDC for a while after the link comes up
+(the vendor U-Boot also fails a few times first), so authentication runs
+from a delayed work and retries every second, up to 30 times.
 ---
  .../boot/dts/celestial/cnc1800l-dsm232.dts    |  10 +-
  arch/arm/mach-celestial/Makefile              |   2 +-
- arch/arm/mach-celestial/cnc1800l-display.c    | 469 ++++++++++++++++++
+ arch/arm/mach-celestial/cnc1800l-display.c    | 496 ++++++++++++++++++
  arch/arm/mach-celestial/cnc1800l.c            |   4 +
  arch/arm/mach-celestial/common.h              |   7 +
- 5 files changed, 486 insertions(+), 6 deletions(-)
+ 5 files changed, 513 insertions(+), 6 deletions(-)
  create mode 100644 arch/arm/mach-celestial/cnc1800l-display.c
  create mode 100644 arch/arm/mach-celestial/common.h
 
@@ -76,10 +79,10 @@ index 470e01a5d..17a99c395 100644
 +obj-$(CONFIG_ARCH_CELESTIAL) += cnc1800l.o cnc1800l-display.o
 diff --git a/arch/arm/mach-celestial/cnc1800l-display.c b/arch/arm/mach-celestial/cnc1800l-display.c
 new file mode 100644
-index 000000000..dafcfcf77
+index 000000000..dcd787af3
 --- /dev/null
 +++ b/arch/arm/mach-celestial/cnc1800l-display.c
-@@ -0,0 +1,469 @@
+@@ -0,0 +1,496 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
 + * CNC1800L HDMI output without the vendor U-Boot "logo" command:
@@ -107,6 +110,7 @@ index 000000000..dafcfcf77
 +#include <linux/moduleparam.h>
 +#include <linux/of.h>
 +#include <linux/printk.h>
++#include <linux/workqueue.h>
 +
 +#include "common.h"
 +
@@ -398,7 +402,7 @@ index 000000000..dafcfcf77
 + * in SiITXHDCP.c siiTXHDCP_Authentication() (no repeater part 2, no Ri link
 + * check); the transmitter holds the keys.
 + */
-+static int __init cnc1800l_display_hdcp(void __iomem *hdmi)
++static int cnc1800l_display_hdcp(void __iomem *hdmi)
 +{
 +	u8 bksv[5], an[8], aksv[5], ri_rx[2], ri_tx[2], bcaps, ctrl;
 +	int i, ones = 0;
@@ -410,7 +414,7 @@ index 000000000..dafcfcf77
 +	for (i = 0; i < 5; i++)
 +		ones += hweight8(bksv[i]);
 +	if (ones != 20)		/* a KSV has 20 ones and 20 zeros */
-+		return -EINVAL;
++		return -ENXIO;
 +
 +	ctrl = hdmi_rd(hdmi, SYS_HDCP_CTRL) | HDCP_CP_RESETN;
 +	hdmi_sys(hdmi, SYS_HDCP_CTRL, ctrl);
@@ -452,6 +456,39 @@ index 000000000..dafcfcf77
 +	hdmi_sys(hdmi, SYS_HDCP_CTRL, hdmi_rd(hdmi, SYS_HDCP_CTRL) | HDCP_ENC_EN);
 +	return 0;
 +}
++
++/*
++ * The receiver does not answer on DDC for a while after the link comes up
++ * (the vendor U-Boot also fails with "No HDCP Dev" before "Authenticated"):
++ * retry in the background like the vendor state machine.
++ */
++#define HDCP_TRIES	30
++
++static void __iomem *hdcp_hdmi;
++static int hdcp_try;
++
++static void cnc1800l_display_hdcp_work(struct work_struct *work)
++{
++	struct delayed_work *dwork = to_delayed_work(work);
++	int ret;
++
++	/* siiTXHDCP_AuthenticationPart1(): encryption changes under AVMUTE */
++	hdmi_avmute(hdcp_hdmi, true);
++	ret = cnc1800l_display_hdcp(hdcp_hdmi);
++	hdmi_avmute(hdcp_hdmi, false);
++	if (!ret) {
++		pr_info("cnc1800l-display: HDCP authenticated (try %d)\n", hdcp_try + 1);
++	} else if (++hdcp_try < HDCP_TRIES) {
++		if (hdcp_try == 1)
++			pr_info("cnc1800l-display: HDCP not ready (%d), retrying\n", ret);
++		schedule_delayed_work(dwork, HZ);
++	} else {
++		pr_warn("cnc1800l-display: HDCP authentication failed (%d), the picture stays blank\n", ret);
++		iounmap(hdcp_hdmi);
++	}
++}
++
++static DECLARE_DELAYED_WORK(hdcp_work, cnc1800l_display_hdcp_work);
 +
 +static void __init dump32(const char *tag, void __iomem *base, u32 phys, u32 start, u32 end)
 +{
@@ -528,16 +565,9 @@ index 000000000..dafcfcf77
 +	if (steps & BIT(3))
 +		cnc1800l_display_hdmi(hdmi);
 +	if (steps & BIT(4)) {
-+		int ret;
-+
-+		/* siiTXHDCP_AuthenticationPart1(): encryption changes under AVMUTE */
-+		hdmi_avmute(hdmi, true);
-+		ret = cnc1800l_display_hdcp(hdmi);
-+		hdmi_avmute(hdmi, false);
-+		if (ret)
-+			pr_warn("cnc1800l-display: HDCP authentication failed (%d), the picture stays blank\n", ret);
-+		else
-+			pr_info("cnc1800l-display: HDCP authenticated\n");
++		hdcp_hdmi = ioremap(HDMI_BASE, 0x1000);
++		if (hdcp_hdmi)
++			schedule_delayed_work(&hdcp_work, HZ / 2);
 +	}
 +	pr_info("cnc1800l-display: HDMI 1920x1080p60, RGB565 at %#x (steps %#x)\n", FB_BASE, steps);
 +	if (dump)

@@ -201,10 +201,12 @@ SYS_CTRL1 を直した後、テレビは 1080p60 で同期するようになっ�
   5. R0 を照合して一致すれば ENC_EN を立てる。前後は AVMUTE で挟む
   - HDCP 鍵は送信部が内蔵している(AKSV がコールド状態でも読める)。
   - リピータ用の第 2 段階(SHA)と、Ri によるリンク監視は実装していない。そのため、テレビを挿し直すと黒に戻る。
-- UART に `cnc1800l-display: HDCP authenticated` が出れば認証成功。`HDCP authentication failed (エラー番号)` の番号の意味は次のとおり。
+- 最初の版は起動処理の中で 1 回だけ認証し、`-22`(当時は BKSV 不正もこの番号)で失敗した。純正 U-Boot でも、最初の数回は `DDC Time Out` → `No HDCP Dev` で失敗してから認証が通る。そこで、起動処理とは別に 1 秒おき・最大 30 回まで再試行するようにした。
+- UART に `cnc1800l-display: HDCP authenticated (try N)` が出れば認証成功。`HDCP authentication failed (エラー番号)` の番号の意味は次のとおり。
   - -19: HPD なし
   - -5: DDC 失敗
-  - -22: BKSV 異常
+  - -6: 受信側の BKSV が不正(1 の数が 20 個でない)
+  - -22: 送信部が BKSV エラーを返した
   - -13: R0 不一致
 - 原因の段階を特定するため、`cnc1800l_display.steps=<ビットマスク>` で一部の段階だけを実行できるようにした。bit0 = クロック、bit1 = DF、bit2 = HDMI ブロックのリセット、bit3 = HDMI TX のレジスタ、bit4 = HDCP 認証。既定は 0x1F(全段階)。
 
