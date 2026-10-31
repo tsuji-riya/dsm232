@@ -1,0 +1,79 @@
+From 6278f077c46920d813897f91e634a9a97e2f478b Mon Sep 17 00:00:00 2001
+From: Tsuji Riya <tsuji.riya@gmail.com>
+Date: Sat, 31 Oct 2026 19:57:56 +0000
+Subject: [PATCH 3/3] ARM: dts: cnc1800l-dsm232: HDMI console via
+ simple-framebuffer
+
+The vendor U-Boot "logo" command starts the HDMI output and scans out
+a 1280x720 RGB565 buffer at 0x0c000000 (stride 2560). Describe it as a
+simple-framebuffer so that fbcon gives a tty on HDMI without a display
+driver.
+
+Add mem=137M to the DT bootargs: the vendor U-Boot passes ATAG_MEM for
+256MB and ARM_ATAG_DTB_COMPAT replaces the DT memory node with it,
+which would hand the framebuffer and vendor regions to Linux.
+
+Enable VFP (needed by armhf userlands such as Alpine), VT, fbdev
+simplefb and the framebuffer console.
+
+Framebuffer geometry was read from the vendor U-Boot binary; not
+tested on hardware.
+---
+ .../boot/dts/celestial/cnc1800l-dsm232.dts    | 25 ++++++++++++++++++-
+ arch/arm/configs/cnc1800l_defconfig           |  6 +++++
+ 2 files changed, 30 insertions(+), 1 deletion(-)
+
+diff --git a/arch/arm/boot/dts/celestial/cnc1800l-dsm232.dts b/arch/arm/boot/dts/celestial/cnc1800l-dsm232.dts
+index 5827699..ee3782a 100644
+--- a/arch/arm/boot/dts/celestial/cnc1800l-dsm232.dts
++++ b/arch/arm/boot/dts/celestial/cnc1800l-dsm232.dts
+@@ -8,8 +8,31 @@
+ 	compatible = "dlink,dsm-232-a1", "celestial,cnc1800l";
+ 
+ 	chosen {
+-		bootargs = "earlycon console=ttyS0,115200n8";
++		#address-cells = <1>;
++		#size-cells = <1>;
++		ranges;
++
++		/*
++		 * mem= is needed because the vendor U-Boot passes ATAG_MEM
++		 * (256MB), which ARM_ATAG_DTB_COMPAT copies over the memory
++		 * node below. 137M = 0x08900000.
++		 */
++		bootargs = "earlycon console=ttyS0,115200n8 mem=137M";
+ 		stdout-path = "serial0:115200n8";
++
++		/*
++		 * Scan-out buffer set up by the vendor U-Boot "logo" command
++		 * (it clears 0x0c000000 and starts HDMI). Values for
++		 * "logo 5 2 ...": 720p, RGB565, 2 bytes/pixel.
++		 */
++		framebuffer@c000000 {
++			compatible = "simple-framebuffer";
++			reg = <0x0c000000 0x001c2000>;
++			width = <1280>;
++			height = <720>;
++			stride = <2560>;
++			format = "r5g6b5";
++		};
+ 	};
+ 
+ 	/*
+diff --git a/arch/arm/configs/cnc1800l_defconfig b/arch/arm/configs/cnc1800l_defconfig
+index eb1175a..689bf67 100644
+--- a/arch/arm/configs/cnc1800l_defconfig
++++ b/arch/arm/configs/cnc1800l_defconfig
+@@ -36,3 +36,9 @@ CONFIG_SPI_DESIGNWARE=y
+ CONFIG_SPI_DW_MMIO=y
+ CONFIG_MTD_UBI=y
+ CONFIG_UBIFS_FS=y
++CONFIG_VFP=y
++CONFIG_VT=y
++CONFIG_VT_CONSOLE=y
++CONFIG_FB=y
++CONFIG_FB_SIMPLE=y
++CONFIG_FRAMEBUFFER_CONSOLE=y
+-- 
+2.43.0
+
