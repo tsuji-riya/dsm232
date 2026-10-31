@@ -2,8 +2,10 @@
 # RAM: 0x4000000 uImage (<16MB) / 0x5000000 uInitrd (<16MB) / 0x6000000 boot.scr / 0xc000000 HDMI framebuffer
 echo "== DSM-232 USB boot =="
 # start HDMI 1080p60 (mode 16; the vendor "1080P" mode 7 is interlaced) RGB565 with a cleared 0xc000000 buffer; must match the DTS framebuffer
+# override from the U-Boot prompt: setenv hdmimode 14; run bootcmd (only 1920x1080 modes 6/7/12-16 match the DTS)
+if test -z "${hdmimode}"; then setenv hdmimode 16; fi
 mw.w 0x6100000 0 1
-logo 16 2 0x6100000 1 1 0 0
+logo ${hdmimode} 2 0x6100000 1 1 0 0
 fatload usb 0:1 0x4000000 uImage
 fatload usb 0:1 0x5000000 uInitrd
 # appended to the DT bootargs (earlycon console=ttyS0,115200n8 mem=137M); last console= becomes /dev/console

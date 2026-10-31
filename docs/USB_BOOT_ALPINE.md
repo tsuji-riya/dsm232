@@ -66,6 +66,15 @@ saveenv
 
 EDID(ディスプレイの対応解像度情報)を読んで自動で合わせる仕組みは無い。
 
+#### 再ビルドせずに 1080 系の mode を試す
+`boot.cmd` は環境変数 `hdmimode`(未設定なら 16)を使う。UART で自動起動を止めて:
+```
+setenv hdmimode 14
+run bootcmd
+```
+14=1080p30(帯域半分)、15=1080p50、7=1080i60。気に入った値は `saveenv` で固定。720p 等の別解像度は DTS も変える必要がある(上の表)。
+
+
 ## 4. 判定基準と切り分け
 | 観測 | 意味 / 次の確認 |
 |---|---|
@@ -74,6 +83,7 @@ EDID(ディスプレイの対応解像度情報)を読んで自動で合わせ�
 | UART に `simple-framebuffer ... fb0: ...` が出るが HDMI が黒のまま | Linux 起動時にスキャンアウトが止まった、またはアドレス違い。U-Boot で `logo 5 2 4000000 1280 720 0 0`(スプラッシュ表示)と比較 |
 | HDMI に文字が出るが色/桁ずれ | `format` / `stride` の誤り。`boot.cmd` の mode と DTS の width/height/stride/reg が一致しているか |
 | 「信号なし」「非対応」と出る | ディスプレイが 1080p60(mode 16)を受けない。`boot.cmd` だけ mode 15(1080p50)/ 7(1080i60)に変える(DTS はそのまま)。それでも駄目なら下の「解像度を変える」で 720p(mode 5) |
+| うっすらチラつく | 仮説: 1080p60 の RGB565 スキャンアウト(約 250MB/s)で共有 DDR の帯域が足りず、表示 FIFO が一瞬欠ける(純正 UI は 1080i = 半分の帯域)。純正 U-Boot に flicker filter・バス優先度の設定は見当たらない。下の手順で mode を変えて比べる |
 | 文字がぼやける | mode 7 は 1080i(インターレース)なので mode 16 を使う。それでも甘い場合はテレビのオーバースキャン(画面サイズ「ジャストスキャン」「フルピクセル」「PC」等)を切る |
 | `VFP support v0.3` が出ない、`Illegal instruction` | CPU が VFP 無し(ARM1176JZ-S)。Alpine armhf は動かない → 代替は soft-float の静的 busybox |
 | `login:` が tty1/ttyS0 に出る | 目標達成。root はパスワード無し(`passwd` で設定) |
