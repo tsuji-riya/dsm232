@@ -1,6 +1,6 @@
-From 55387c7d677b904b048487222c7f4a5cd473aec3 Mon Sep 17 00:00:00 2001
+From 7179c4c13880411a3c3d0172ce97f2beec72aa13 Mon Sep 17 00:00:00 2001
 From: Tsuji Riya <tsuji.riya@gmail.com>
-Date: Sat, 31 Oct 2026 23:03:08 +0000
+Date: Sat, 31 Oct 2026 23:17:26 +0000
 Subject: [PATCH 10/10] ARM: cnc1800l: bring up HDMI 1080p60 without U-Boot
 
 The DSM-232 console relied on the vendor U-Boot "logo" command to set
@@ -22,13 +22,16 @@ by U-Boot "logo".
 On hardware, SYS_CTRL1 must keep HEN/VEN (0x37, as left by hdmi.bin)
 and the DF graphics format keeps AlphaIsValid (0x12): with 0x07 the
 transmitter measured no input timing and the TV got no signal.
+
+cnc1800l_display.steps=<mask> runs only some of the set-up steps (clocks,
+DF, HDMI block reset, HDMI TX registers) to bisect on hardware.
 ---
  .../boot/dts/celestial/cnc1800l-dsm232.dts    |  10 +-
  arch/arm/mach-celestial/Makefile              |   2 +-
- arch/arm/mach-celestial/cnc1800l-display.c    | 284 ++++++++++++++++++
+ arch/arm/mach-celestial/cnc1800l-display.c    | 293 ++++++++++++++++++
  arch/arm/mach-celestial/cnc1800l.c            |   4 +
  arch/arm/mach-celestial/common.h              |   7 +
- 5 files changed, 301 insertions(+), 6 deletions(-)
+ 5 files changed, 310 insertions(+), 6 deletions(-)
  create mode 100644 arch/arm/mach-celestial/cnc1800l-display.c
  create mode 100644 arch/arm/mach-celestial/common.h
 
@@ -63,10 +66,10 @@ index 470e01a5d..17a99c395 100644
 +obj-$(CONFIG_ARCH_CELESTIAL) += cnc1800l.o cnc1800l-display.o
 diff --git a/arch/arm/mach-celestial/cnc1800l-display.c b/arch/arm/mach-celestial/cnc1800l-display.c
 new file mode 100644
-index 000000000..26607cccc
+index 000000000..0533fedec
 --- /dev/null
 +++ b/arch/arm/mach-celestial/cnc1800l-display.c
-@@ -0,0 +1,284 @@
+@@ -0,0 +1,293 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
 + * CNC1800L HDMI output without the vendor U-Boot "logo" command:
@@ -151,6 +154,11 @@ index 000000000..26607cccc
 +module_param(skip, bool, 0444);
 +MODULE_PARM_DESC(skip, "keep the HDMI output set up by U-Boot");
 +
++/* bisecting on hardware: bit 0 clocks, 1 DF, 2 HDMI block reset, 3 HDMI TX registers */
++static uint steps = 0xf;
++module_param(steps, uint, 0444);
++MODULE_PARM_DESC(steps, "set-up steps to run (bit mask, default 0xf)");
++
 +static bool dump;
 +module_param(dump, bool, 0444);
 +MODULE_PARM_DESC(dump, "print the display registers before and after the set-up");
@@ -227,7 +235,7 @@ index 000000000..26607cccc
 +	writel(val, hdmi + 0x400 + reg * 4);
 +}
 +
-+static void __init cnc1800l_display_hdmi(void __iomem *hdmi, void __iomem *clk)
++static void __init cnc1800l_display_hdmi(void __iomem *hdmi)
 +{
 +	/*
 +	 * AVI InfoFrame, not the one of hdmi.bin (VIC 1, BT.601): YCbCr 4:4:4
@@ -237,11 +245,6 @@ index 000000000..26607cccc
 +	u8 avi[17] = { 0x82, 0x02, 0x0d, 0, 0x52, 0xa8, 0x80, 16 };
 +	u8 sum = 0;
 +	int i;
-+
-+	/* clock_hdmi_reset() pulse, which hdmi.bin calls first (jump table 46) */
-+	rmw(clk + CLOCK_SOFT_RESET, BIT(19), 0);
-+	udelay(10);	/* guess (推測): hdmi.bin's delay is unknown */
-+	rmw(clk + CLOCK_SOFT_RESET, 0, BIT(19));
 +
 +	/*
 +	 * SYS_CTRL1: PD# (0), EDGE (1), BSEL (2), HEN/VEN (4/5, take HSYNC and
@@ -338,10 +341,19 @@ index 000000000..26607cccc
 +	}
 +
 +	memset_io(fb, 0, FB_SIZE);
-+	cnc1800l_display_clocks(clk);
-+	cnc1800l_display_df(df);
-+	cnc1800l_display_hdmi(hdmi, clk);
-+	pr_info("cnc1800l-display: HDMI 1920x1080p60, RGB565 at %#x\n", FB_BASE);
++	if (steps & BIT(0))
++		cnc1800l_display_clocks(clk);
++	if (steps & BIT(1))
++		cnc1800l_display_df(df);
++	if (steps & BIT(2)) {
++		/* clock_hdmi_reset() pulse, which hdmi.bin calls first (jump table 46) */
++		rmw(clk + CLOCK_SOFT_RESET, BIT(19), 0);
++		udelay(10);	/* guess (推測): hdmi.bin's delay is unknown */
++		rmw(clk + CLOCK_SOFT_RESET, 0, BIT(19));
++	}
++	if (steps & BIT(3))
++		cnc1800l_display_hdmi(hdmi);
++	pr_info("cnc1800l-display: HDMI 1920x1080p60, RGB565 at %#x (steps %#x)\n", FB_BASE, steps);
 +	if (dump)
 +		cnc1800l_display_dump("after", clk, df, hdmi);
 +
