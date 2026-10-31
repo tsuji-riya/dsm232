@@ -1,6 +1,11 @@
 # Linux 側の reboot / USB / Wi-Fi / HDMI 初期化
 
-**状態**: 4 項目とも `./build-usb.sh` は通るが、**実機未検証**。カーネル変更は `linux-7.2/patches/0007`〜`0010`、ユーザーランドは `alpine/build.sh`・`alpine/boot.cmd`。
+**状態**: 4 項目とも `./build-usb.sh` は通る。実機で確認できたものは次のとおり(2026-11-01)。
+- HDMI: `logo` を使わずに 1080p60 で tty1 が表示された(HDCP 認証は 2 回目で成功)。
+- USB: 起動に使った USB メモリが `sda` として認識された。
+- Wi-Fi: ath6kl が AR6003 hw2.1.1 のファーム 3.2.0.144 を読み込んだ。
+
+reboot / poweroff、USB メモリのマウント、Wi-Fi のスキャン・接続、USB 上の ext4 root は**未検証**。カーネル変更は `linux-7.2/patches/0007`〜`0010`、ユーザーランドは `alpine/build.sh`・`alpine/boot.cmd`。
 
 根拠の出典の略記:
 - **BSP** = 純正 Linux 2.6.32 BSP(`crisprelease/buildroot/linux/kernel-patch/linux-1800l-2-6-32.patch` を当てたツリー)
@@ -186,7 +191,7 @@ HDMI TX(0x72 ページ = 0x80400000 + reg×4、AV ページ = 0x80400400 + reg×
 
 残りの差は HDCP(72:0F、BKSV、Ri)、音声(AV:01–24、Audio InfoFrame)、割り込みマスク、DDC だけで、映像には関係しない想定。
 
-### 黒画面の切り分け(進行中)
+### 黒画面の切り分け(解決: HDCP 認証が必要だった)
 SYS_CTRL1 を直した後、テレビは 1080p60 で同期するようになったが、画面は真っ黒のまま。
 - `logo` で映っている状態の上から Linux の初期化をかけても黒くなる。この操作で値が変わるのは、HDMI TX の HDCP(72:0F 0x4F→0)、音声、72:CC(0x0F→0x01)だけだった。
 - `hdcpoff=1` の試験では、`hdmi.bin` の HDCP 認証が失敗した回に、`hdmi.bin` 自身が SYS_CTRL1 を 0x36(PD#=0、電源断)にしていた。純正は HDCP が通らないと出力を止める作りと見られる。
