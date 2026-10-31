@@ -1,6 +1,6 @@
-From c63d107c3a08a8763c2ed81e9d8c54cb3179b296 Mon Sep 17 00:00:00 2001
+From 5ad84cb24ca8016ba68561b2f7a14339c92a6186 Mon Sep 17 00:00:00 2001
 From: Tsuji Riya <tsuji.riya@gmail.com>
-Date: Sat, 31 Oct 2026 22:40:24 +0000
+Date: Sat, 31 Oct 2026 22:48:51 +0000
 Subject: [PATCH 10/10] ARM: cnc1800l: bring up HDMI 1080p60 without U-Boot
 
 The DSM-232 console relied on the vendor U-Boot "logo" command to set
@@ -15,13 +15,16 @@ HDCP, and with a correct AVI InfoFrame (VIC 16, BT.709, 16:9, YCbCr
 4:4:4, underscan, IT content).
 
 cnc1800l_display.skip=1 keeps what U-Boot set up instead.
+cnc1800l_display.dump=1 prints the clock, pin mux, DF and HDMI TX
+registers before (and after) the set-up, to compare with the state left
+by U-Boot "logo".
 ---
  .../boot/dts/celestial/cnc1800l-dsm232.dts    |  10 +-
  arch/arm/mach-celestial/Makefile              |   2 +-
- arch/arm/mach-celestial/cnc1800l-display.c    | 227 ++++++++++++++++++
+ arch/arm/mach-celestial/cnc1800l-display.c    | 279 ++++++++++++++++++
  arch/arm/mach-celestial/cnc1800l.c            |   4 +
  arch/arm/mach-celestial/common.h              |   7 +
- 5 files changed, 244 insertions(+), 6 deletions(-)
+ 5 files changed, 296 insertions(+), 6 deletions(-)
  create mode 100644 arch/arm/mach-celestial/cnc1800l-display.c
  create mode 100644 arch/arm/mach-celestial/common.h
 
@@ -56,10 +59,10 @@ index 470e01a5d..17a99c395 100644
 +obj-$(CONFIG_ARCH_CELESTIAL) += cnc1800l.o cnc1800l-display.o
 diff --git a/arch/arm/mach-celestial/cnc1800l-display.c b/arch/arm/mach-celestial/cnc1800l-display.c
 new file mode 100644
-index 000000000..b56fd67ab
+index 000000000..d70322356
 --- /dev/null
 +++ b/arch/arm/mach-celestial/cnc1800l-display.c
-@@ -0,0 +1,227 @@
+@@ -0,0 +1,279 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
 + * CNC1800L HDMI output without the vendor U-Boot "logo" command:
@@ -101,6 +104,9 @@ index 000000000..b56fd67ab
 +#define  CLOCK_PLL_SLEEP_N	0x20c
 +
 +/* Display feeder; +0x00 holds register updates while 1 */
++/* Pin multiplexer, vendor cnc1800l_mux.c (only dumped) */
++#define PINMUX_BASE		0xb2110000
++
 +#define DF_BASE			0xb1800000
 +#define  DF_UPDATE		0x000
 +#define  DF_GFX0_CTRL		0x040
@@ -140,6 +146,10 @@ index 000000000..b56fd67ab
 +static bool skip;
 +module_param(skip, bool, 0444);
 +MODULE_PARM_DESC(skip, "keep the HDMI output set up by U-Boot");
++
++static bool dump;
++module_param(dump, bool, 0444);
++MODULE_PARM_DESC(dump, "print the display registers before and after the set-up");
 +
 +static void rmw(void __iomem *reg, u32 clr, u32 set)
 +{
@@ -257,6 +267,41 @@ index 000000000..b56fd67ab
 +	hdmi_av(hdmi, AV_PB_CTRL2, 0x0c);	/* ... on, every frame */
 +}
 +
++static void __init dump32(const char *tag, void __iomem *base, u32 phys, u32 start, u32 end)
++{
++	u32 o;
++
++	for (o = start; o < end; o += 16)
++		pr_info("cnc1800l-display: %s %08x: %08x %08x %08x %08x\n", tag, phys + o,
++			readl(base + o), readl(base + o + 4), readl(base + o + 8), readl(base + o + 12));
++}
++
++/* HDMI TX registers are 8 bit wide, one per word */
++static void __init dump_hdmi(const char *tag, void __iomem *hdmi)
++{
++	u8 b[16];
++	u32 o, i;
++
++	for (o = 0; o < 0x800; o += 64) {
++		for (i = 0; i < 16; i++)
++			b[i] = readl(hdmi + o + i * 4);
++		pr_info("cnc1800l-display: %s %08x: %16ph\n", tag, HDMI_BASE + o, b);
++	}
++}
++
++static void __init cnc1800l_display_dump(const char *tag, void __iomem *clk,
++					 void __iomem *df, void __iomem *hdmi)
++{
++	void __iomem *pinmux = ioremap(PINMUX_BASE, 0x100);
++
++	dump32(tag, clk, CLOCK_BASE, 0x100, 0x220);
++	dump32(tag, pinmux, PINMUX_BASE, 0x00, 0x30);
++	dump32(tag, df, DF_BASE, 0x000, 0x0a0);
++	dump32(tag, df, DF_BASE, 0x300, 0x360);
++	dump_hdmi(tag, hdmi);
++	iounmap(pinmux);
++}
++
 +void __init cnc1800l_display_init(void)
 +{
 +	void __iomem *clk, *df, *hdmi, *fb;
@@ -264,7 +309,7 @@ index 000000000..b56fd67ab
 +	/* the framebuffer address is the one of the DSM-232 DTS */
 +	if (!of_machine_is_compatible("dlink,dsm-232-a1"))
 +		return;
-+	if (skip) {
++	if (skip && !dump) {
 +		pr_info("cnc1800l-display: keeping the HDMI set up by U-Boot\n");
 +		return;
 +	}
@@ -276,12 +321,22 @@ index 000000000..b56fd67ab
 +	if (WARN_ON(!clk || !df || !hdmi || !fb))
 +		return;
 +
++	if (dump)
++		cnc1800l_display_dump("before", clk, df, hdmi);
++	if (skip) {
++		pr_info("cnc1800l-display: keeping the HDMI set up by U-Boot\n");
++		goto out;
++	}
++
 +	memset_io(fb, 0, FB_SIZE);
 +	cnc1800l_display_clocks(clk);
 +	cnc1800l_display_df(df);
 +	cnc1800l_display_hdmi(hdmi, clk);
 +	pr_info("cnc1800l-display: HDMI 1920x1080p60, RGB565 at %#x\n", FB_BASE);
++	if (dump)
++		cnc1800l_display_dump("after", clk, df, hdmi);
 +
++out:
 +	iounmap(fb);
 +	iounmap(hdmi);
 +	iounmap(df);

@@ -169,12 +169,15 @@ HDMI TX(0x72 ページ = 0x80400000 + reg×4、AV ページ = 0x80400400 + reg×
 1. 新しい `boot.scr` でそのまま起動する(`logo` は走らない)。
    - 成功: UART に `cnc1800l-display: HDMI 1920x1080p60, RGB565 at 0xc000000` と `simple-framebuffer ... fb0` が出る。テレビに tty1 の `login:` が表示され、ちらつかない。テレビの入力情報が 1920×1080p / 60Hz。
 2. 比較用(U-Boot 経路): `setenv hdmi uboot; run bootcmd`
-3. 映らない、または色や同期がおかしい場合は、両方の経路で次の出力を UART から貼ってほしい(差分から原因を絞る)。
+3. 映らない、または色や同期がおかしい場合は、カーネル引数 `cnc1800l_display.dump=1` で表示関係のレジスタ(クロック 0xB2100100–0x21F、ピンマックス 0xB2110000–0x2F、DF 0xB1800000–0x9F と 0x300–0x35F、HDMI TX 2 ページ)を UART に出し、両方の経路で比べる(Alpine の busybox には `devmem` が無い)。
    ```
-   for a in 0xb2100108 0xb2100140 0xb2100148 0xb2100200 0xb210020c 0xb1800040 0xb1800044 0xb1800058 0xb1800340 0xb1800344 0xb1800348 0xb180034c 0xb1800350 0x80400020 0x80400024 0x8040003c 0x804000cc 0x80400120 0x80400124 0x80400128 0x80400208 0x804004bc 0x804004f8 0x804004fc 0x8040050c 0x8040077c; do echo $a $(devmem $a); done
+   setenv extraargs cnc1800l_display.dump=1
+   usb start; fatload usb 0:1 0x6000000 boot.scr; source 0x6000000
    ```
-   - 0x80400024(SYS_STAT): bit0 = 入力クロック安定、bit1 = HPD、bit2 = 受信側の終端検出(SiI の定義。エミュレータでは 0x07 を返していた)。テレビの接続状態とクロックの確認に使う。
-   - 起動時の dmesg の `cnc1800l-display` の行も貼ってほしい。
+   - Linux 経路: `before` = U-Boot プロンプト時点(`logo` 未実行)の実機の値、`after` = 初期化後。
+   - `setenv hdmi uboot` を足すと `before` が `logo` 実行後(映る状態)になる。
+   - `setenv hdmi uboot; setenv extraargs cnc1800l_display.dump=1 cnc1800l_display.skip=0` は、映っている状態の上から Linux の初期化をかける(後の `skip=0` が優先)。これで映像が消えるかどうかで、書いている値が悪いのか、足りない手順があるのかを切り分けられる。
+   - HDMI TX の 0x80400024(SYS_STAT): bit0 = 入力クロック安定、bit1 = HPD、bit2 = 受信側の終端検出(SiI の定義)。
 
 ### 未確認・限界
 - エミュレータは未知のレジスタを 0 として読むため、read-modify-write の結果は「リセット値が 0」と仮定したものになっている。DF と HDMI の書き込みは、その結果の値をそのまま書いている。
