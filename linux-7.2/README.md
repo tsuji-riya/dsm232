@@ -12,7 +12,7 @@
 | DTS | `arch/arm/boot/dts/celestial/cnc1800l{.dtsi,-dsm232.dts}` |
 | defconfig | `cnc1800l_defconfig` (ARM_APPENDED_DTB + ATAG_DTB_COMPAT) |
 | NAND/SPI | `patches/0002-*`: CNC1800L NAND コントローラ(旧=HW Hamming互換 / 新=標準soft ECC を DT で切替)、DW SSI + spi-nor。詳細は `docs/FLASH_SUPPORT.md`。DTS は旧 `cnc1800l-dsm232.dts` / 新 `cnc1800l-dsm232-newecc.dts` |
-| HDMI コンソール | `patches/0003-*`: 純正 U-Boot の `logo` が用意する 0x0C000000 の FB(1280×720 RGB565)を `simple-framebuffer` + fbcon で使う。`mem=137M` を DT bootargs に追加。USB 起動手順は `docs/USB_BOOT_ALPINE.md` |
+| HDMI コンソール | `patches/0003-*`: 純正 U-Boot の `logo` が用意する 0x0C000000 の FB(1920×1080 RGB565、`logo` mode 7)を `simple-framebuffer` + fbcon で使う。`mem=137M` を DT bootargs に追加。USB 起動手順は `docs/USB_BOOT_ALPINE.md` |
 | メモリ | 0x0–0x08900000 のみ Linux に渡す。それより上はベンダーFWがFB/ビデオ/オーディオ/demux用に使う領域 (`mem_define.h` Tiga-Mini 計算値) |
 
 ## 検証状況
