@@ -115,8 +115,8 @@ def jt_hook(uc, addr, size, ud):
         p = heap[0]; heap[0] += (a[0] + 15) & ~15; return ret(uc, p)
     if i == 45:                                # vendor memset(ptr, c, n)
         uc.mem_write(a[0], bytes([a[1] & 0xff]) * a[2]); return ret(uc, a[0])
-    if i == 46:                                # vendor TVE0/TVE1 register write (id, reg, val, ...)
-        OUT.write('TVE%d reg=%02x val=%x (%x)\n' % (a[0], a[1], a[2], a[3])); return ret(uc, 0)
+    if i == 46:                                # vendor clock_hdmi_reset(0 = assert, 1 = release), exported after memset
+        OUT.write('HDMI_RESET %s (clock 0x200 bit 19)\n' % ('assert' if a[0] == 0 else 'release')); return ret(uc, 0)
     if n in ('udelay', 'free', 'install_hdlr', 'free_hdlr'):
         return ret(uc, 0)
     if n == 'simple_strtoul':

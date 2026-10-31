@@ -1,0 +1,327 @@
+From c63d107c3a08a8763c2ed81e9d8c54cb3179b296 Mon Sep 17 00:00:00 2001
+From: Tsuji Riya <tsuji.riya@gmail.com>
+Date: Sat, 31 Oct 2026 22:40:24 +0000
+Subject: [PATCH 10/10] ARM: cnc1800l: bring up HDMI 1080p60 without U-Boot
+
+The DSM-232 console relied on the vendor U-Boot "logo" command to set
+up the display, and on a boot script fix for the AVI InfoFrame that
+the vendor hdmi.bin gets wrong for 1080p. Set up the same 1920x1080p60
+RGB565 scan-out of the simple-framebuffer at 0x0c000000 from Linux:
+TVE PLL and dividers (power_clock.c clock_dispset_clockmoderaw()),
+display feeder timing and graphics layer (df.c DFSetOutIFVideoFmt(),
+CS_LoadDisplay()), then the Silicon Image HDMI transmitter with the
+register writes of hdmi.bin recorded in an emulator, without audio and
+HDCP, and with a correct AVI InfoFrame (VIC 16, BT.709, 16:9, YCbCr
+4:4:4, underscan, IT content).
+
+cnc1800l_display.skip=1 keeps what U-Boot set up instead.
+---
+ .../boot/dts/celestial/cnc1800l-dsm232.dts    |  10 +-
+ arch/arm/mach-celestial/Makefile              |   2 +-
+ arch/arm/mach-celestial/cnc1800l-display.c    | 227 ++++++++++++++++++
+ arch/arm/mach-celestial/cnc1800l.c            |   4 +
+ arch/arm/mach-celestial/common.h              |   7 +
+ 5 files changed, 244 insertions(+), 6 deletions(-)
+ create mode 100644 arch/arm/mach-celestial/cnc1800l-display.c
+ create mode 100644 arch/arm/mach-celestial/common.h
+
+diff --git a/arch/arm/boot/dts/celestial/cnc1800l-dsm232.dts b/arch/arm/boot/dts/celestial/cnc1800l-dsm232.dts
+index 91fb5b40a..d15d59a72 100644
+--- a/arch/arm/boot/dts/celestial/cnc1800l-dsm232.dts
++++ b/arch/arm/boot/dts/celestial/cnc1800l-dsm232.dts
+@@ -22,11 +22,11 @@ chosen {
+ 		stdout-path = "serial0:115200n8";
+ 
+ 		/*
+-		 * Scan-out buffer set up by the vendor U-Boot "logo" command
+-		 * (it clears 0x0c000000 and starts HDMI). Values for
+-		 * "logo 16 2 ...": 1920x1080 progressive 60Hz (mode 7, the
+-		 * vendor's "1080P", is 1080i), RGB565, 2 bytes/pixel.
+-		 * Must match the mode in the boot script.
++		 * Scan-out buffer, 1920x1080p60 RGB565, set up by
++		 * mach-celestial/cnc1800l-display.c. With
++		 * cnc1800l_display.skip=1 the vendor U-Boot "logo 16 2 ..."
++		 * sets it up instead (mode 7, the vendor's "1080P", is 1080i)
++		 * and its mode must match these values.
+ 		 */
+ 		framebuffer@c000000 {
+ 			compatible = "simple-framebuffer";
+diff --git a/arch/arm/mach-celestial/Makefile b/arch/arm/mach-celestial/Makefile
+index 470e01a5d..17a99c395 100644
+--- a/arch/arm/mach-celestial/Makefile
++++ b/arch/arm/mach-celestial/Makefile
+@@ -1,2 +1,2 @@
+ # SPDX-License-Identifier: GPL-2.0-only
+-obj-$(CONFIG_ARCH_CELESTIAL) += cnc1800l.o
++obj-$(CONFIG_ARCH_CELESTIAL) += cnc1800l.o cnc1800l-display.o
+diff --git a/arch/arm/mach-celestial/cnc1800l-display.c b/arch/arm/mach-celestial/cnc1800l-display.c
+new file mode 100644
+index 000000000..b56fd67ab
+--- /dev/null
++++ b/arch/arm/mach-celestial/cnc1800l-display.c
+@@ -0,0 +1,227 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * CNC1800L HDMI output without the vendor U-Boot "logo" command:
++ * 1920x1080p60, RGB565 scan-out of the DSM-232 simple-framebuffer at
++ * 0x0c000000. Fixed mode, no EDID, no hotplug, no audio, no HDCP.
++ *
++ * The steps and values are those of "logo 16 2 ..." in the vendor U-Boot
++ * (uboot-2011.06-cavium-beijing.patch):
++ *  - clocks: board/cavium/cnc1800l/power_clock.c,
++ *    clock_dispset_clockmoderaw(disp0, _YUV_1080P_60Hz, TVE PLL)
++ *  - DF: drivers/cnc1800l/df/df.c, DFSetOutIFVideoFmt() and
++ *    CS_LoadDisplay() (InitTVE0Raw() does nothing for 1080p)
++ *  - HDMI TX: the binary-only hdmi.bin appended to U-Boot; its register
++ *    writes were recorded with tools/display_emu (mode 16). Silicon Image
++ *    core, register names as in omapdrm's hdmi4_core.h.
++ */
++
++#include <linux/array_size.h>
++#include <linux/bits.h>
++#include <linux/bug.h>
++#include <linux/delay.h>
++#include <linux/io.h>
++#include <linux/moduleparam.h>
++#include <linux/of.h>
++#include <linux/printk.h>
++
++#include "common.h"
++
++#define FB_BASE			0x0c000000
++#define FB_PITCH		(1920 * 2)
++#define FB_SIZE			(FB_PITCH * 1080)
++
++/* Clock and reset block, vendor mach/cnc1800l_power_clk.h */
++#define CLOCK_BASE		0xb2100000
++#define  CLOCK_PLL_TVE_DIV	0x108
++#define  CLOCK_PLL_CLK_EN	0x140
++#define  CLOCK_TVE_DIV_N	0x148
++#define  CLOCK_SOFT_RESET	0x200
++#define  CLOCK_PLL_SLEEP_N	0x20c
++
++/* Display feeder; +0x00 holds register updates while 1 */
++#define DF_BASE			0xb1800000
++#define  DF_UPDATE		0x000
++#define  DF_GFX0_CTRL		0x040
++#define  DF_GFX0_FORMAT		0x044
++#define  DF_GFX0_ALPHA		0x048
++#define  DF_GFX0_KEY_R		0x04c
++#define  DF_GFX0_KEY_G		0x050
++#define  DF_GFX0_KEY_B		0x054
++#define  DF_GFX0_ADDR		0x058
++#define  DF_GFX0_PITCH		0x05c
++#define  DF_GFX0_X		0x060
++#define  DF_GFX0_Y		0x064
++#define  DF_OUTIF0_CTRL		0x340
++#define  DF_OUTIF0_X		0x344
++#define  DF_OUTIF0_Y		0x348
++#define  DF_OUTIF0_HSYNC	0x34c
++#define  DF_OUTIF0_VSYNC	0x350
++#define  DF_OUTIF0_LEVEL	0x354
++
++/* HDMI TX: system page (I2C 0x72) register r at 4r, AV page at 0x400 + 4r */
++#define HDMI_BASE		0x80400000
++#define  SYS_SRST		0x05
++#define  SYS_SYS_CTRL1		0x08
++#define  SYS_HDCP_CTRL		0x0f
++#define  SYS_DE_CTRL		0x33
++#define  SYS_VID_CTRL		0x48
++#define  SYS_VID_ACEN		0x49
++#define  SYS_VID_MODE		0x4a
++#define  SYS_VID_BLANK1		0x4b
++#define  SYS_TMDS_CTRL		0x82
++#define  AV_HDMI_CTRL		0x2f
++#define  AV_PB_CTRL1		0x3e
++#define  AV_PB_CTRL2		0x3f
++#define  AV_AVI_TYPE		0x40
++#define  AV_CP_BYTE1		0xdf
++
++static bool skip;
++module_param(skip, bool, 0444);
++MODULE_PARM_DESC(skip, "keep the HDMI output set up by U-Boot");
++
++static void rmw(void __iomem *reg, u32 clr, u32 set)
++{
++	writel((readl(reg) & ~clr) | set, reg);
++}
++
++static void __init cnc1800l_display_clocks(void __iomem *clk)
++{
++	/* clock_dispclock_gating(): disp0 and HDMI TMDS clocks off */
++	rmw(clk + CLOCK_PLL_CLK_EN, 0x50, 0);
++	udelay(200);
++	/* clock_disptve_pllmode(_clock_sleep) */
++	rmw(clk + CLOCK_PLL_SLEEP_N, BIT(1), 0);
++	udelay(10);
++	rmw(clk + CLOCK_PLL_SLEEP_N, BIT(0), 0);
++	/* clock_disp_reset(): the vendor code always hits bit 13, also for disp0 */
++	rmw(clk + CLOCK_SOFT_RESET, BIT(13), 0);
++	/* TVE PLL 148.5MHz: disp_pll_cfg[_YUV_1080P_60Hz] tve_m 2, tve_fb 21 */
++	rmw(clk + CLOCK_PLL_TVE_DIV, 0xffff, 0x8000 | 21 << 8 | 2);
++	udelay(500);
++	/* clock_disptve_pllmode(_clock_wake) */
++	rmw(clk + CLOCK_PLL_SLEEP_N, 0, BIT(0));
++	udelay(100);
++	rmw(clk + CLOCK_PLL_SLEEP_N, 0, BIT(1));
++	/* dividers HdmiTmds 2, Disp 2, TveClk6 4, TveClk0 2 */
++	rmw(clk + CLOCK_TVE_DIV_N, 0xffff, 2 << 12 | 2 << 8 | 4 << 4 | 2);
++	rmw(clk + CLOCK_SOFT_RESET, 0, BIT(13));
++	udelay(50);
++	rmw(clk + CLOCK_PLL_CLK_EN, 0, 0x50);
++	/*
++	 * clock_hdmiset_clockmode(_YUV_1080P_60Hz) follows in the vendor
++	 * code; it only gates the TMDS clock and sets the same divider again.
++	 */
++}
++
++static void __init cnc1800l_display_df(void __iomem *df)
++{
++	/* DFSetOutIFVideoFmt(): CEA-861 1920x1080p60 */
++	writel(1, df + DF_UPDATE);
++	writel(0x4405, df + DF_OUTIF0_CTRL);	/* DispEn, IsHD, DownMode, DitherEna */
++	writel(1920 << 16 | 2200, df + DF_OUTIF0_X);	/* active, total */
++	writel(1080 << 16 | 1125, df + DF_OUTIF0_Y);
++	writel(148 << 20 | 44 << 10 | 88, df + DF_OUTIF0_HSYNC);	/* BP, width, FP */
++	writel(36 << 16 | 5 << 8 | 4, df + DF_OUTIF0_VSYNC);
++	writel(800 << 16 | 252, df + DF_OUTIF0_LEVEL);	/* VGA white, black */
++	writel(0, df + DF_UPDATE);
++
++	/* CS_LoadDisplay(): graphics layer 0 shows the framebuffer */
++	writel(1, df + DF_UPDATE);
++	writel(0, df + DF_GFX0_CTRL);
++	writel(2, df + DF_GFX0_FORMAT);		/* RGB565 */
++	writel(FB_BASE, df + DF_GFX0_ADDR);
++	writel(FB_PITCH, df + DF_GFX0_PITCH);
++	writel(1919 << 16, df + DF_GFX0_X);	/* end (inclusive), start */
++	writel(1080 << 16, df + DF_GFX0_Y);	/* vendor value, not 1079 */
++	writel(0x3ff, df + DF_GFX0_ALPHA);
++	writel(0, df + DF_GFX0_KEY_R);
++	writel(0, df + DF_GFX0_KEY_G);
++	writel(0, df + DF_GFX0_KEY_B);
++	writel(0x49, df + DF_GFX0_CTRL);	/* enable, colour key, RGB to YUV */
++	writel(0, df + DF_UPDATE);
++}
++
++static void hdmi_sys(void __iomem *hdmi, unsigned int reg, u8 val)
++{
++	writel(val, hdmi + reg * 4);
++}
++
++static void hdmi_av(void __iomem *hdmi, unsigned int reg, u8 val)
++{
++	writel(val, hdmi + 0x400 + reg * 4);
++}
++
++static void __init cnc1800l_display_hdmi(void __iomem *hdmi, void __iomem *clk)
++{
++	/*
++	 * AVI InfoFrame, not the one of hdmi.bin (VIC 1, BT.601): YCbCr 4:4:4
++	 * (what the DF sends), active format present, underscan, BT.709, 16:9,
++	 * IT content, VIC 16 (1080p60). Byte 3 is the checksum.
++	 */
++	u8 avi[17] = { 0x82, 0x02, 0x0d, 0, 0x52, 0xa8, 0x80, 16 };
++	u8 sum = 0;
++	int i;
++
++	/* clock_hdmi_reset() pulse, which hdmi.bin calls first (jump table 46) */
++	rmw(clk + CLOCK_SOFT_RESET, BIT(19), 0);
++	udelay(10);	/* guess (推測): hdmi.bin's delay is unknown */
++	rmw(clk + CLOCK_SOFT_RESET, 0, BIT(19));
++
++	hdmi_sys(hdmi, SYS_SYS_CTRL1, 0x01);	/* PD# = 1: powered up */
++	hdmi_sys(hdmi, SYS_VID_BLANK1, 0x80);	/* blanking = YCbCr black */
++	hdmi_sys(hdmi, SYS_VID_BLANK1 + 1, 0x10);
++	hdmi_sys(hdmi, SYS_VID_BLANK1 + 2, 0x80);
++	hdmi_sys(hdmi, SYS_TMDS_CTRL, 0x25);
++	hdmi_av(hdmi, AV_HDMI_CTRL, 0x01);	/* HDMI, not DVI */
++	hdmi_sys(hdmi, SYS_DE_CTRL, 0x00);
++	hdmi_sys(hdmi, SYS_VID_MODE, 0x00);	/* no conversion */
++	hdmi_sys(hdmi, SYS_SYS_CTRL1, 0x05);
++	hdmi_sys(hdmi, SYS_VID_CTRL, 0x00);
++	hdmi_sys(hdmi, SYS_VID_ACEN, 0x40);
++	hdmi_sys(hdmi, SYS_SYS_CTRL1, 0x07);
++	hdmi_sys(hdmi, SYS_SRST, 0x03);		/* software and FIFO reset */
++	hdmi_sys(hdmi, SYS_SRST, 0x00);
++	hdmi_sys(hdmi, SYS_HDCP_CTRL, 0x00);	/* no encryption */
++
++	for (i = 0; i < ARRAY_SIZE(avi); i++)
++		sum += avi[i];
++	avi[3] = -sum;
++	hdmi_av(hdmi, AV_PB_CTRL1, 0x00);	/* AVI off while it is written */
++	for (i = 0; i < ARRAY_SIZE(avi); i++)
++		hdmi_av(hdmi, AV_AVI_TYPE + i, avi[i]);
++	hdmi_av(hdmi, AV_PB_CTRL1, 0x03);	/* AVI on, every frame */
++
++	hdmi_av(hdmi, AV_CP_BYTE1, 0x10);	/* general control packet: clear AVMUTE */
++	hdmi_av(hdmi, AV_PB_CTRL2, 0x0c);	/* ... on, every frame */
++}
++
++void __init cnc1800l_display_init(void)
++{
++	void __iomem *clk, *df, *hdmi, *fb;
++
++	/* the framebuffer address is the one of the DSM-232 DTS */
++	if (!of_machine_is_compatible("dlink,dsm-232-a1"))
++		return;
++	if (skip) {
++		pr_info("cnc1800l-display: keeping the HDMI set up by U-Boot\n");
++		return;
++	}
++
++	clk = ioremap(CLOCK_BASE, 0x1000);
++	df = ioremap(DF_BASE, 0x1000);
++	hdmi = ioremap(HDMI_BASE, 0x1000);
++	fb = ioremap_wc(FB_BASE, FB_SIZE);
++	if (WARN_ON(!clk || !df || !hdmi || !fb))
++		return;
++
++	memset_io(fb, 0, FB_SIZE);
++	cnc1800l_display_clocks(clk);
++	cnc1800l_display_df(df);
++	cnc1800l_display_hdmi(hdmi, clk);
++	pr_info("cnc1800l-display: HDMI 1920x1080p60, RGB565 at %#x\n", FB_BASE);
++
++	iounmap(fb);
++	iounmap(hdmi);
++	iounmap(df);
++	iounmap(clk);
++}
+diff --git a/arch/arm/mach-celestial/cnc1800l.c b/arch/arm/mach-celestial/cnc1800l.c
+index f00242ccd..c8d6e93f9 100644
+--- a/arch/arm/mach-celestial/cnc1800l.c
++++ b/arch/arm/mach-celestial/cnc1800l.c
+@@ -9,6 +9,8 @@
+ #include <linux/reboot.h>
+ #include <asm/mach/arch.h>
+ 
++#include "common.h"
++
+ /* Watchdog, as used by the vendor BSP arch_reset() (mach/system.h) */
+ #define CNC1800L_WDT_BASE	0x801e1000
+ 
+@@ -79,6 +81,8 @@ static void __init cnc1800l_init_machine(void)
+ 	cnc1800l_usb_init(clk);
+ 	cnc1800l_sdio_init(clk);
+ 	iounmap(clk);
++
++	cnc1800l_display_init();
+ }
+ 
+ static const char * const cnc1800l_dt_compat[] __initconst = {
+diff --git a/arch/arm/mach-celestial/common.h b/arch/arm/mach-celestial/common.h
+new file mode 100644
+index 000000000..180993063
+--- /dev/null
++++ b/arch/arm/mach-celestial/common.h
+@@ -0,0 +1,7 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++#ifndef __MACH_CELESTIAL_COMMON_H
++#define __MACH_CELESTIAL_COMMON_H
++
++void cnc1800l_display_init(void);
++
++#endif
+-- 
+2.47.3
+

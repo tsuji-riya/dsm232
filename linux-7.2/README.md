@@ -1,11 +1,11 @@
 # Linux v7.2 for CNC1800L (D-Link DSM-232)
 
-`patches/0001-*.patch`(+ `0002`〜`0005`)を Linux v7.2 (`v7.2` タグ) に適用する。ビルドは `./build.sh` (要 `gcc-arm-linux-gnueabi`, `u-boot-tools`, `bc flex bison libssl-dev`)。
+`patches/0001`〜`0010` を順に Linux v7.2 (`v7.2` タグ) に適用する。ビルドは `./build.sh` (要 `gcc-arm-linux-gnueabi`, `u-boot-tools`, `bc flex bison libssl-dev`)。
 
 ## 追加内容
 | 項目 | 内容 |
 |---|---|
-| `arch/arm/mach-celestial` | DT_MACHINE_START のみ (`celestial,cnc1800l`) |
+| `arch/arm/mach-celestial` | DT_MACHINE_START (`celestial,cnc1800l`)。`patches/0007`〜`0010` で WDT による restart、USB/SDIO のクロック・リセット・ピンマックス設定、HDMI 1080p60 の初期化(`cnc1800l-display.c`)を追加。詳細は `docs/LINUX_PERIPHERALS.md` |
 | `drivers/irqchip` | 変更なし。BSP の VIC は DW APB ICTL と同一レジスタ配置のため `snps,dw-apb-ictl` を流用 (0x80140000, 32 IRQ) |
 | `drivers/clocksource/timer-cnc1800l.c` | AHB timer (0x80270000, IRQ4, 94.5MHz) = clockevent / APB timer (0x801e2000, 47.25MHz) = clocksource+sched_clock |
 | UART | `snps,dw-apb-uart` ×2 (0x801f1000 IRQ12 / 0x801f2000 IRQ13), reg-shift 2, io-width 4, 47.25MHz。console は ttyS0 115200 |
@@ -13,6 +13,7 @@
 | defconfig | `cnc1800l_defconfig` (ARM_APPENDED_DTB + ATAG_DTB_COMPAT) |
 | NAND/SPI | `patches/0002-*`: CNC1800L NAND コントローラ(旧=HW Hamming互換 / 新=標準soft ECC を DT で切替)、DW SSI + spi-nor。詳細は `docs/FLASH_SUPPORT.md`。DTS は旧 `cnc1800l-dsm232.dts` / 新 `cnc1800l-dsm232-newecc.dts` |
 | HDMI コンソール | `patches/0003-*`: 純正 U-Boot の `logo` が用意する 0x0C000000 の FB(1920×1080 RGB565、`logo` mode 16 = 1080p60)を `simple-framebuffer` + fbcon で使う。`mem=137M` を DT bootargs に追加。USB 起動手順は `docs/USB_BOOT_ALPINE.md` |
+| USB / Wi-Fi | `patches/0008`: `generic-ehci` (0x80200000, IRQ22) + `generic-ohci` (0x80210000, IRQ27)、USB メモリ/ext4/vfat。`patches/0009`: GPIO (`gpio-mmio`, 0x80260000)、SDIO (`snps,dw-mshc`, 0x80290000, IRQ18)、AR6003 を `ath6kl_sdio` + `mmc-pwrseq-simple` (GPIO10) |
 | メモリ | 0x0–0x08900000 のみ Linux に渡す。それより上はベンダーFWがFB/ビデオ/オーディオ/demux用に使う領域 (`mem_define.h` Tiga-Mini 計算値) |
 
 ## 検証状況

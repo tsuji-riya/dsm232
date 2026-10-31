@@ -5,7 +5,7 @@
 **解析の経緯**: 純正 U-Boot の `logo` と、その末尾で実行される `hdmi.bin` を CPU エミュレータで実行し、表示まわりのレジスタアクセスをすべて記録した。1080p(mode 14/15/16)では **`hdmi.bin` が誤った AVI InfoFrame を送っている**(1080p60 なのに「640×480・BT.601・アスペクト比なし」と申告)ことが分かった。`alpine/boot.cmd` で `logo` の直後に正しい InfoFrame へ書き換える。チラつきが直るかは**実機未確認**(下の「検証」)。
 
 ## 1. 方法
-- 対象: `dump/nand.bin` の 0x20000 にある純正 U-Boot 2011.06(0x02000000 にリンク)と、その後ろに連結された `dvu.bin` / `hdmi.bin`(ARM の位置独立コード、U-Boot の jump table `gd->jt` = `gd+0x64` 経由で printf / simple_strtoul / memset(45) / TVE 書込(46) を呼ぶ)。
+- 対象: `dump/nand.bin` の 0x20000 にある純正 U-Boot 2011.06(0x02000000 にリンク)と、その後ろに連結された `dvu.bin` / `hdmi.bin`(ARM の位置独立コード、U-Boot の jump table `gd->jt` = `gd+0x64` 経由で printf / simple_strtoul / memset(45) / `clock_hdmi_reset`(46) を呼ぶ。46 は以前「TVE 書込」と誤認していた。GPL の U-Boot パッチ `include/_exports.h` で `memset` の直後に追加されているのが `clock_hdmi_reset` で、引数も 0→1 のリセットパルスの形)。
 - `tools/display_emu/run.sh`: Unicorn で `logo <mode> 2 ...` を実行し、MMIO の読み書きを全て記録。周辺の模擬は最小限: SiI `SYS_STAT`=0x07(HPD+RSEN+P_STABLE)、DDC で一般的な 1080p テレビの EDID(CEA 拡張 + HDMI VSDB、`edid.py`)を返す。
 - 名前付けの裏付け: エミュレート中に純正のデバッグ出力(`Reg->df_gfx_control_reg.bits.iGfxEna = 1`、`Display configurate complete!`、`DDC Time Out!` 等)がそのまま出る=実際の経路を通っている。
 

@@ -1,5 +1,7 @@
 # USB メモリから Linux 7.2 + Alpine Linux を起動し HDMI にコンソールを出す
 
+> **更新(パッチ 0010 以降)**: HDMI は既定で Linux 側(`cnc1800l-display.c`)が初期化し、`boot.cmd` は `logo` を実行しない。以下の `logo` 経路は `setenv hdmi uboot` で使える代替手段。USB・Wi-Fi・reboot も対応した。詳細は [LINUX_PERIPHERALS.md](LINUX_PERIPHERALS.md)。
+
 **結論**: 純正 U-Boot(2011.06)の `logo` で HDMI を起動し、そのフレームバッファを Linux の `simple-framebuffer`(fbcon)で引き継ぐ。カーネル(`uImage`)と Alpine の initramfs(`uInitrd`)は U-Boot が USB の FAT から RAM に読む。NAND/SPI には一切書かない(`saveenv` を使う任意手順を除く)。**実機未検証**。
 
 ## 1. 根拠(`dump/` の解析で確認したこと)
@@ -90,6 +92,6 @@ run bootcmd
 
 ## 5. 未確認・限界
 - **すべて静的解析と設計のみ**。カーネル/initramfs のビルドもこの環境では未実施(Alpine CDN・kernel.org にアクセス不可)。`alpine/build.sh` はダミーのミラーでの動作確認のみ(非 root UID・再実行も確認)。`docker/build-all.sh` の FAT イメージ作成部分(sfdisk/mkfs.vfat/mtools)は、この環境のコンテナから apt が使えず未実行。
-- Linux 側の USB(EHCI 0x80200000)・Ethernet ドライバは未対応。rootfs は RAM 上で、**変更は再起動で消える**。`apk` もネットワークが無いので使えない。USB 上の rootfs に永続化するには EHCI/OHCI の IRQ とクロック/PHY 初期化の特定が必要(純正カーネルは暗号化されておりダンプからは読めなかった)。
+- (更新: USB と Wi-Fi は [LINUX_PERIPHERALS.md](LINUX_PERIPHERALS.md) で対応)Linux 側の USB(EHCI 0x80200000)・Ethernet ドライバは未対応。rootfs は RAM 上で、**変更は再起動で消える**。`apk` もネットワークが無いので使えない。USB 上の rootfs に永続化するには EHCI/OHCI の IRQ とクロック/PHY 初期化の特定が必要(純正カーネルは暗号化されておりダンプからは読めなかった)。
 - `hdmi.bin` が HDMI を常時サービスする必要があるか(ホットプラグ・EDID 再交渉)は不明。モニタ抜き差しで消える可能性がある。
 - `logo` の color 6(ARGB8888)は未使用。RGB565 は純正で実績がある方を選んだ。
