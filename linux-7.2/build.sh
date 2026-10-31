@@ -5,6 +5,8 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 SRC=${1:-$HERE/../../linux-src}
 [ -d "$SRC/.git" ] || git clone --depth 1 --branch v7.2 https://github.com/torvalds/linux "$SRC"
 cd "$SRC"
+git am --abort 2>/dev/null || true
+git reset -q --hard v7.2  # rerun-safe: drop previously applied patches, keep build output
 git -c user.name=build -c user.email=build@localhost am --3way "$HERE"/patches/*.patch
 export ARCH=arm CROSS_COMPILE=arm-linux-gnueabi-
 make cnc1800l_defconfig

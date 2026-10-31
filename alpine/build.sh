@@ -22,9 +22,10 @@ read -r FILE SHA < <(curl -fsSL "$MIRROR/$BRANCH/releases/armhf/latest-releases.
 echo "$SHA  $FILE" | sha256sum -c -
 
 # 2. rootfs + boot glue
+[ -d rootfs ] && chmod -R u+w rootfs  # minirootfs has read-only dirs
 rm -rf rootfs
 mkdir rootfs
-tar -xzf "$FILE" -C rootfs
+tar -xzpf "$FILE" -C rootfs
 cat > rootfs/init <<'EOF'
 #!/bin/sh
 # initramfs: /dev is not auto-mounted, so do it before busybox init opens the ttys

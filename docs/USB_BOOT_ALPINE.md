@@ -19,33 +19,33 @@
 - `linux-7.2/build.sh`: 上記の CONFIG が `.config` から消えていたら停止。
 - `alpine/build.sh`: Alpine armhf minirootfs(latest-stable、sha256 検証)→ busybox init + tty1/ttyS0 の getty → `uInitrd`、`boot.cmd` → `boot.scr`。
 - `alpine/boot.cmd`: USB からの起動スクリプト。
+- `build-usb.sh` / `docker/`: Debian trixie コンテナで上記すべてと USB イメージ(`out/dsm232-usb.img`)を作る。root・ループデバイス不要。
 
 RAM 配置: `0x4000000` uImage(<16MB)/ `0x5000000` uInitrd(<16MB)/ `0x6000000` boot.scr / `0x0C000000` FB / Linux は `0–0x08900000`。
 
 ## 3. 手順
-### 3.1 PC でビルド(Debian/Ubuntu 例)
+### 3.1 Docker でビルド(必要なのは Docker とネット接続だけ)
 ```bash
-sudo apt install gcc-arm-linux-gnueabi u-boot-tools bc flex bison libssl-dev cpio curl
+./build-usb.sh
 ```
+結果: `out/dsm232-usb.img`(64MB、MBR + FAT16 に `uImage` / `uInitrd` / `boot.scr`)。同じ 3 ファイルが `out/usb/` にもある。初回はカーネル取得とビルドで数十分。カーネルソースは `.cache/linux-src` に残り、2 回目以降は差分ビルド。
+
+### 3.2 USB メモリに書く(中身は全部消える)
+Linux: デバイス名を `lsblk` で必ず確認してから。
 ```bash
-linux-7.2/build.sh
+sudo dd if=out/dsm232-usb.img of=/dev/sdX bs=4M conv=fsync status=progress
 ```
-```bash
-alpine/build.sh
-```
-### 3.2 USB メモリ
-MBR + 第 1 パーティション FAT32。ルートに 3 ファイルを置く: `linux-7.2/uImage`、`alpine/out/uInitrd`、`alpine/out/boot.scr`。
-(古い U-Boot の USB/FAT は相性が出やすい。認識しなければ小容量の USB 2.0 メモリで試す)
+Windows / macOS: balenaEtcher か Rufus(DD モード)で `out/dsm232-usb.img` を書く。
 
 ### 3.3 初回は UART から手動で(フラッシュは書かない)
-自動起動を止めて:
+純正 bootcmd は USB を見ないので、**最低 1 回は UART 操作が必要**。自動起動を止めて:
 ```
 usb start
 fatload usb 0:1 0x6000000 boot.scr
 source 0x6000000
 ```
-### 3.4 (任意)USB があれば USB 起動、無ければ純正起動にする
-SPI の環境変数領域だけを書き換える。USB を抜けば純正に戻る。
+### 3.4 以後は「USB を挿して電源 ON」だけにする
+SPI の環境変数領域だけを書き換える(1 回だけ)。USB を抜けば純正起動に戻る。
 ```
 setenv bootcmd 'usb start; if fatload usb 0:1 0x6000000 boot.scr; then source 0x6000000; fi; dcache on;run ledon; run show_logo;boots'
 saveenv
@@ -63,7 +63,7 @@ saveenv
 | `login:` が tty1/ttyS0 に出る | 目標達成。root はパスワード無し(`passwd` で設定) |
 
 ## 5. 未確認・限界
-- **すべて静的解析と設計のみ**。カーネル/initramfs のビルドもこの環境では未実施(Alpine CDN・kernel.org にアクセス不可)。`alpine/build.sh` はダミーのミラーでの動作確認のみ。
+- **すべて静的解析と設計のみ**。カーネル/initramfs のビルドもこの環境では未実施(Alpine CDN・kernel.org にアクセス不可)。`alpine/build.sh` はダミーのミラーでの動作確認のみ(非 root UID・再実行も確認)。`docker/build-all.sh` の FAT イメージ作成部分(sfdisk/mkfs.vfat/mtools)は、この環境のコンテナから apt が使えず未実行。
 - Linux 側の USB(EHCI 0x80200000)・Ethernet ドライバは未対応。rootfs は RAM 上で、**変更は再起動で消える**。`apk` もネットワークが無いので使えない。USB 上の rootfs に永続化するには EHCI/OHCI の IRQ とクロック/PHY 初期化の特定が必要(純正カーネルは暗号化されておりダンプからは読めなかった)。
 - `hdmi.bin` が HDMI を常時サービスする必要があるか(ホットプラグ・EDID 再交渉)は不明。モニタ抜き差しで消える可能性がある。
 - `logo` の color 6(ARGB8888)は未使用。RGB565 は純正で実績がある方を選んだ。
