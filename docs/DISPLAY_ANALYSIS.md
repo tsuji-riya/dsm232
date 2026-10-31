@@ -32,9 +32,18 @@
 - DB2=0xA8: BT.709、16:9
 - DB3=0x80: **IT コンテンツ**(PC 画面として扱い、ノイズ除去・動き補間などの映像処理を止めるよう要求)
 - DB4: 実際の VIC(16 / 31 / 34)、DB5=0: グラフィックス、画素繰り返しなし
-- 0x72:0x48(VID_CTRL)= 0x10: 純正が HD モードで使う BT.709 側の設定に揃える
 
 チェックサムは `tools/display_emu/avi_check.py` が検証し、`alpine/build.sh` から毎回実行される。
+
+### スクリプトの検証(純正 U-Boot のシェルで実行)
+純正 U-Boot 2011.06 の hush は、`$` を含む行を**変数展開後に空白で連結して再解析**する(`common/hush.c` の `child->sp` 処理)。そのため空の変数は引数ごと消え、`test -z "${x}"` は `test -z`(引数不足で偽)、`test "${x}" = 16` は `test = 16`(真)になる。最初の版の `boot.cmd` はこれで `hdmimode` が設定されず、`logo` の引数がずれて HDMI が起動しなかった(実機ログ `mode = 2, picture_color_mode = 101711872`)。比較は `x${var} = xVALUE` の形で書く。
+
+`tools/display_emu/run_script.py` は `boot.cmd` を**純正 U-Boot 自身の hush と test/setenv/run/mw**で実行する(イメージの `.rel.dyn` を適用、`set_default_env` で環境を初期化、`usb`/`fatload`/`bootm`/`logo`/`md` はスタブ)。旧版の失敗を実機と同じ形で再現し、現版はプリセット(なし / `hdmimode=14` / `hdmimode=7` / `hdcpoff=1` / 組合せ)で期待どおりのコマンドとレジスタ書込になることを確認した:
+```
+tools/display_emu/run.sh 16                       # out/display_emu/uboot.bin を作る
+python3 -I tools/display_emu/run_script.py out/display_emu/uboot.bin alpine/boot.cmd hdmimode=14
+```
+VID_CTRL(0x72:0x48)への書込は削除した(最終状態で CSC 無効なので効果がなく、意味も未確認)。
 
 ## 4. チラつきとの関係(仮説と検証)
 - 仮説 A(今回の対策): テレビは 1080p60 の信号を「640×480 の映像」と申告されており、拡大縮小・映像処理の判断を誤っている。静止した文字にうっすら揺れが出る典型原因は、テレビ側のノイズ除去・動き処理・オーバースキャン拡大で、IT コンテンツ + アンダースキャンの申告で止まることが多い。
