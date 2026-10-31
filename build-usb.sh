@@ -3,4 +3,5 @@
 set -eu
 cd "$(dirname "$0")"
 docker build -t dsm232-build - < docker/Dockerfile
-docker run --rm -v "$PWD:/work" -w /work -u "$(id -u):$(id -g)" -e HOME=/tmp dsm232-build docker/build-all.sh
+# kernel source in a named volume: it has case-colliding paths (xt_DSCP.h / xt_dscp.h) that break on macOS/Windows host filesystems
+docker run --rm -v "$PWD:/work" -v dsm232-linux-src:/linux-src -w /work -u "$(id -u):$(id -g)" -e HOME=/tmp dsm232-build docker/build-all.sh

@@ -2,7 +2,7 @@
 # Runs inside the container (repo mounted at /work): kernel, Alpine initramfs, then out/dsm232-usb.img
 set -euo pipefail
 cd "$(dirname "$0")/.."
-linux-7.2/build.sh .cache/linux-src
+linux-7.2/build.sh /linux-src/linux
 alpine/build.sh
 
 rm -rf out

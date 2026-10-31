@@ -5,3 +5,5 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 	git ca-certificates curl u-boot-tools cpio gzip \
 	dosfstools mtools fdisk \
 	&& rm -rf /var/lib/apt/lists/*
+# mount point of the kernel-source volume; world-writable so any host UID can create its tree inside
+RUN mkdir -m 1777 /linux-src
