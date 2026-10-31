@@ -1,0 +1,67 @@
+From 32a80bbeb9d36ad0a90d2d1c97175f63ca04f0ce Mon Sep 17 00:00:00 2001
+From: Tsuji Riya <tsuji.riya@gmail.com>
+Date: Sat, 31 Oct 2026 22:40:23 +0000
+Subject: [PATCH 07/10] ARM: cnc1800l: restart through the watchdog
+
+Reboot hung with "Reboot failed -- System halted": nothing could reset
+the SoC. Do what the vendor 2.6.32 BSP arch_reset() (mach/system.h)
+does: program the watchdog at 0x801e1000 for the shortest timeout and
+enable it in system reset mode, with 16 bit accesses as the vendor
+code. The registers are mapped in init_machine since the restart
+handler runs with interrupts disabled.
+
+There is no power-off control in the vendor BSP, so poweroff stays a
+halt (the reboot syscall turns POWER_OFF into HALT without a handler).
+---
+ arch/arm/mach-celestial/cnc1800l.c | 28 ++++++++++++++++++++++++++++
+ 1 file changed, 28 insertions(+)
+
+diff --git a/arch/arm/mach-celestial/cnc1800l.c b/arch/arm/mach-celestial/cnc1800l.c
+index 080f0e2c2..6f7e8d1bd 100644
+--- a/arch/arm/mach-celestial/cnc1800l.c
++++ b/arch/arm/mach-celestial/cnc1800l.c
+@@ -3,8 +3,34 @@
+  * Device Tree support for the Celestial (Cavium) CNC1800L SoC
+  */
+ 
++#include <linux/io.h>
++#include <linux/reboot.h>
+ #include <asm/mach/arch.h>
+ 
++/* Watchdog, as used by the vendor BSP arch_reset() (mach/system.h) */
++#define CNC1800L_WDT_BASE	0x801e1000
++
++static void __iomem *wdt;
++
++static void cnc1800l_restart(enum reboot_mode mode, const char *cmd)
++{
++	/*
++	 * Same as arch_reset(), 16 bit writes: TORR = 0 (shortest timeout),
++	 * CCVR = 0, then CR = 1 (enable, system reset on timeout).
++	 */
++	writew(0, wdt + 0x04);
++	writew(0, wdt + 0x06);
++	writew(0, wdt + 0x08);
++	writew(0, wdt + 0x0a);
++	writew(1, wdt + 0x00);
++}
++
++static void __init cnc1800l_init_machine(void)
++{
++	/* mapped here: restart runs with interrupts off and cannot ioremap */
++	wdt = ioremap(CNC1800L_WDT_BASE, 0x1000);
++}
++
+ static const char * const cnc1800l_dt_compat[] __initconst = {
+ 	"celestial,cnc1800l",
+ 	NULL
+@@ -12,4 +38,6 @@ static const char * const cnc1800l_dt_compat[] __initconst = {
+ 
+ DT_MACHINE_START(CELESTIAL_DT, "Celestial CNC1800L (Device Tree)")
+ 	.dt_compat	= cnc1800l_dt_compat,
++	.init_machine	= cnc1800l_init_machine,
++	.restart	= cnc1800l_restart,
+ MACHINE_END
+-- 
+2.47.3
+

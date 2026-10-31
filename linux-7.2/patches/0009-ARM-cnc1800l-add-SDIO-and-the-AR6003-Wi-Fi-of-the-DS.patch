@@ -1,0 +1,187 @@
+From 878fdd6ee12f094eedad929d4353a8e76a6f0ee3 Mon Sep 17 00:00:00 2001
+From: Tsuji Riya <tsuji.riya@gmail.com>
+Date: Sat, 31 Oct 2026 22:40:24 +0000
+Subject: [PATCH 09/10] ARM: cnc1800l: add SDIO and the AR6003 Wi-Fi of the
+ DSM-232
+
+The SDIO host ("MSHCI" in the vendor BSP, 0x80290000, IRQ 18) is a
+DesignWare mobile storage host clocked from PCLK (47.25MHz). The vendor
+probe sets every clock output enable (clock block 0x140) and the SDIO
+pin mux (0xb2110024) first; do the same in init_machine.
+
+The Atheros AR6003 (hw2.1.1, as in the vendor ath6kl firmware tree) is
+held in reset by GPIO 10. The vendor GPIO block has its direction
+register inverted (1 = input), which the generic MMIO GPIO driver
+handles with a "dirin" register; describe port A only. Use
+mmc-pwrseq-simple for the reset line and ath6kl_sdio for the chip.
+---
+ .../boot/dts/celestial/cnc1800l-dsm232.dts    | 21 +++++++++++++
+ arch/arm/boot/dts/celestial/cnc1800l.dtsi     | 31 +++++++++++++++++++
+ arch/arm/configs/cnc1800l_defconfig           | 17 ++++++++++
+ arch/arm/mach-celestial/cnc1800l.c            | 20 ++++++++++++
+ 4 files changed, 89 insertions(+)
+
+diff --git a/arch/arm/boot/dts/celestial/cnc1800l-dsm232.dts b/arch/arm/boot/dts/celestial/cnc1800l-dsm232.dts
+index 420d9af38..91fb5b40a 100644
+--- a/arch/arm/boot/dts/celestial/cnc1800l-dsm232.dts
++++ b/arch/arm/boot/dts/celestial/cnc1800l-dsm232.dts
+@@ -1,6 +1,7 @@
+ // SPDX-License-Identifier: GPL-2.0-only OR MIT
+ /dts-v1/;
+ 
++#include <dt-bindings/gpio/gpio.h>
+ #include "cnc1800l.dtsi"
+ 
+ / {
+@@ -43,6 +44,16 @@ framebuffer@c000000 {
+ 	 * (see mem_define.h, Tiga-Mini layout). Only the memory below
+ 	 * XPORT_REGION (0x08971000, rounded down to 1MB) is given to Linux.
+ 	 */
++	/*
++	 * AR6003 (SDIO Wi-Fi) reset: GPIO 10, driven high by the vendor
++	 * mshci-cnc1800l.c on Tiga Mini boards before the host is probed.
++	 */
++	wifi_pwrseq: wifi-pwrseq {
++		compatible = "mmc-pwrseq-simple";
++		reset-gpios = <&gpio 10 GPIO_ACTIVE_LOW>;
++		post-power-on-delay-ms = <100>;	/* guess (推測) */
++	};
++
+ 	memory@0 {
+ 		device_type = "memory";
+ 		reg = <0x00000000 0x08900000>;
+@@ -57,6 +68,16 @@ &ohci {
+ 	status = "okay";
+ };
+ 
++&mmc {
++	status = "okay";
++	bus-width = <4>;
++	non-removable;
++	cap-sdio-irq;
++	cap-sd-highspeed;
++	max-frequency = <25000000>;	/* guess (推測): SDIO high speed limit */
++	mmc-pwrseq = <&wifi_pwrseq>;
++};
++
+ &uart0 {
+ 	status = "okay";
+ };
+diff --git a/arch/arm/boot/dts/celestial/cnc1800l.dtsi b/arch/arm/boot/dts/celestial/cnc1800l.dtsi
+index e7c731e67..15f03bc36 100644
+--- a/arch/arm/boot/dts/celestial/cnc1800l.dtsi
++++ b/arch/arm/boot/dts/celestial/cnc1800l.dtsi
+@@ -122,6 +122,37 @@ ohci: usb@80210000 {
+ 			status = "disabled";
+ 		};
+ 
++		/*
++		 * Vendor GPIO block (cnc18xx_gpio.c), not the DesignWare one:
++		 * port A (GPIO 0-31) data out at +0x20, direction at +0x24 with
++		 * 1 = input, pin level at +0x60. Port B (GPIO 32-40) is not
++		 * described. Driven by the generic MMIO GPIO driver.
++		 */
++		gpio: gpio@80260060 {
++			compatible = "wd,mbl-gpio";
++			reg = <0x80260060 0x4>, <0x80260020 0x4>, <0x80260024 0x4>;
++			reg-names = "dat", "set", "dirin";
++			gpio-controller;
++			#gpio-cells = <2>;
++		};
++
++		/*
++		 * "MSHCI" of the vendor BSP (mshci-cnc1800l.c): a DesignWare
++		 * mobile storage host. Its card clock source is fixed at
++		 * 47.25MHz (mshci_cnc1800l_get_max_clk()), i.e. PCLK.
++		 */
++		mmc: mmc@80290000 {
++			compatible = "snps,dw-mshc";
++			reg = <0x80290000 0x1000>;
++			interrupt-parent = <&intc>;
++			interrupts = <18>;
++			clocks = <&pclk>, <&pclk>;
++			clock-names = "biu", "ciu";
++			#address-cells = <1>;
++			#size-cells = <0>;
++			status = "disabled";
++		};
++
+ 		uart0: serial@801f1000 {
+ 			compatible = "snps,dw-apb-uart";
+ 			reg = <0x801f1000 0x100>;
+diff --git a/arch/arm/configs/cnc1800l_defconfig b/arch/arm/configs/cnc1800l_defconfig
+index 1db3a95a2..9c8d286bf 100644
+--- a/arch/arm/configs/cnc1800l_defconfig
++++ b/arch/arm/configs/cnc1800l_defconfig
+@@ -54,3 +54,20 @@ CONFIG_EXT4_FS=y
+ CONFIG_VFAT_FS=y
+ CONFIG_NLS_CODEPAGE_437=y
+ CONFIG_NLS_ISO8859_1=y
++CONFIG_NET=y
++CONFIG_PACKET=y
++CONFIG_UNIX=y
++CONFIG_INET=y
++CONFIG_CFG80211=y
++CONFIG_NETDEVICES=y
++# CONFIG_ETHERNET is not set
++CONFIG_ATH6KL=y
++CONFIG_ATH6KL_SDIO=y
++CONFIG_GPIOLIB=y
++CONFIG_GPIO_GENERIC_PLATFORM=y
++CONFIG_MMC=y
++CONFIG_PWRSEQ_SIMPLE=y
++CONFIG_MMC_DW=y
++CONFIG_MMC_DW_PLTFM=y
++CONFIG_FW_LOADER_COMPRESS=y
++CONFIG_FW_LOADER_COMPRESS_ZSTD=y
+diff --git a/arch/arm/mach-celestial/cnc1800l.c b/arch/arm/mach-celestial/cnc1800l.c
+index b4fbc16e8..f00242ccd 100644
+--- a/arch/arm/mach-celestial/cnc1800l.c
++++ b/arch/arm/mach-celestial/cnc1800l.c
+@@ -14,9 +14,14 @@
+ 
+ /* Clock and reset block, vendor mach/cnc1800l_power_clk.h */
+ #define CNC1800L_CLOCK_BASE	0xb2100000
++#define  CLOCK_PLL_CLK_EN	0x140
+ #define  CLOCK_SOFT_RESET	0x200
+ #define  CLOCK_USB_ULPI_BYPASS	0x218
+ 
++/* Pin multiplexer, vendor cnc1800l_mux.c */
++#define CNC1800L_PINMUX_BASE	0xb2110000
++#define  REG_PINMUX_SDIO	0x24
++
+ static void __iomem *wdt;
+ 
+ static void cnc1800l_restart(enum reboot_mode mode, const char *cmd)
+@@ -50,6 +55,20 @@ static void __init cnc1800l_usb_init(void __iomem *clk)
+ 	writel(readl(clk + CLOCK_USB_ULPI_BYPASS) | 0x3, clk + CLOCK_USB_ULPI_BYPASS);
+ }
+ 
++/*
++ * SDIO (AR6003 Wi-Fi): the vendor mshci-cnc1800l.c mshci_cnc1800l_probe()
++ * turns on every clock output and selects the SDIO pins before it touches
++ * the controller. The Wi-Fi reset GPIO is handled by mmc-pwrseq-simple.
++ */
++static void __init cnc1800l_sdio_init(void __iomem *clk)
++{
++	void __iomem *pinmux = ioremap(CNC1800L_PINMUX_BASE, 0x100);
++
++	writel(0xffffffff, clk + CLOCK_PLL_CLK_EN);
++	writel(1, pinmux + REG_PINMUX_SDIO);
++	iounmap(pinmux);
++}
++
+ static void __init cnc1800l_init_machine(void)
+ {
+ 	void __iomem *clk = ioremap(CNC1800L_CLOCK_BASE, 0x1000);
+@@ -58,6 +77,7 @@ static void __init cnc1800l_init_machine(void)
+ 	wdt = ioremap(CNC1800L_WDT_BASE, 0x1000);
+ 
+ 	cnc1800l_usb_init(clk);
++	cnc1800l_sdio_init(clk);
+ 	iounmap(clk);
+ }
+ 
+-- 
+2.47.3
+

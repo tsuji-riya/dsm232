@@ -4,3 +4,4 @@ out/
 linux-7.2/uImage
 linux-7.2/zImage-dtb
 __pycache__/
+alpine/bdata.bin

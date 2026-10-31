@@ -1,0 +1,156 @@
+From 431ccb33116809ea8fb6ab0542ef43c659f96b9a Mon Sep 17 00:00:00 2001
+From: Tsuji Riya <tsuji.riya@gmail.com>
+Date: Sat, 31 Oct 2026 22:40:23 +0000
+Subject: [PATCH 08/10] ARM: cnc1800l: add the USB host controllers
+
+Describe the EHCI (0x80200000, IRQ 22) and its OHCI companion
+(0x80210000, IRQ 27) for the generic platform drivers and enable USB
+mass storage, ext4 and vfat in the defconfig.
+
+The vendor glue (ehci-cnc18xx.c, ohci-cnc18xx.c) pulses the USB reset
+(clock block 0x200 bit 4) and sets 0x218 bits 0-1 (PHY bypass, "enable
+and 48MHz"); the vendor U-Boot clears 0x218 on "usb stop" before
+booting, so do this in init_machine. The EHCI address is the one of
+the vendor U-Boot, which boots from USB on this board; the vendor
+Linux glue uses the same block at +0x100.
+---
+ .../boot/dts/celestial/cnc1800l-dsm232.dts    |  8 +++++
+ arch/arm/boot/dts/celestial/cnc1800l.dtsi     | 22 ++++++++++++++
+ arch/arm/configs/cnc1800l_defconfig           | 12 ++++++++
+ arch/arm/mach-celestial/cnc1800l.c            | 30 +++++++++++++++++++
+ 4 files changed, 72 insertions(+)
+
+diff --git a/arch/arm/boot/dts/celestial/cnc1800l-dsm232.dts b/arch/arm/boot/dts/celestial/cnc1800l-dsm232.dts
+index 9ae4b324f..420d9af38 100644
+--- a/arch/arm/boot/dts/celestial/cnc1800l-dsm232.dts
++++ b/arch/arm/boot/dts/celestial/cnc1800l-dsm232.dts
+@@ -49,6 +49,14 @@ memory@0 {
+ 	};
+ };
+ 
++&ehci {
++	status = "okay";
++};
++
++&ohci {
++	status = "okay";
++};
++
+ &uart0 {
+ 	status = "okay";
+ };
+diff --git a/arch/arm/boot/dts/celestial/cnc1800l.dtsi b/arch/arm/boot/dts/celestial/cnc1800l.dtsi
+index 7a99f7eb6..e7c731e67 100644
+--- a/arch/arm/boot/dts/celestial/cnc1800l.dtsi
++++ b/arch/arm/boot/dts/celestial/cnc1800l.dtsi
+@@ -100,6 +100,28 @@ nand: nand-controller@a4000000 {
+ 			status = "disabled";
+ 		};
+ 
++		/*
++		 * EHCI as in the vendor U-Boot (CONFIG_SYS_USB_EHCI_REGS_BASE);
++		 * the vendor Linux glue maps the same block at +0x100. Its OHCI
++		 * companion handles full/low speed devices. The PHY and clock are
++		 * enabled by the machine code (cnc1800l.c).
++		 */
++		ehci: usb@80200000 {
++			compatible = "generic-ehci";
++			reg = <0x80200000 0x1000>;
++			interrupt-parent = <&intc>;
++			interrupts = <22>;
++			status = "disabled";
++		};
++
++		ohci: usb@80210000 {
++			compatible = "generic-ohci";
++			reg = <0x80210000 0x1000>;
++			interrupt-parent = <&intc>;
++			interrupts = <27>;
++			status = "disabled";
++		};
++
+ 		uart0: serial@801f1000 {
+ 			compatible = "snps,dw-apb-uart";
+ 			reg = <0x801f1000 0x100>;
+diff --git a/arch/arm/configs/cnc1800l_defconfig b/arch/arm/configs/cnc1800l_defconfig
+index 689bf6779..1db3a95a2 100644
+--- a/arch/arm/configs/cnc1800l_defconfig
++++ b/arch/arm/configs/cnc1800l_defconfig
+@@ -42,3 +42,15 @@ CONFIG_VT_CONSOLE=y
+ CONFIG_FB=y
+ CONFIG_FB_SIMPLE=y
+ CONFIG_FRAMEBUFFER_CONSOLE=y
++CONFIG_SCSI=y
++CONFIG_BLK_DEV_SD=y
++CONFIG_USB=y
++CONFIG_USB_EHCI_HCD=y
++CONFIG_USB_EHCI_HCD_PLATFORM=y
++CONFIG_USB_OHCI_HCD=y
++CONFIG_USB_OHCI_HCD_PLATFORM=y
++CONFIG_USB_STORAGE=y
++CONFIG_EXT4_FS=y
++CONFIG_VFAT_FS=y
++CONFIG_NLS_CODEPAGE_437=y
++CONFIG_NLS_ISO8859_1=y
+diff --git a/arch/arm/mach-celestial/cnc1800l.c b/arch/arm/mach-celestial/cnc1800l.c
+index 6f7e8d1bd..b4fbc16e8 100644
+--- a/arch/arm/mach-celestial/cnc1800l.c
++++ b/arch/arm/mach-celestial/cnc1800l.c
+@@ -3,6 +3,8 @@
+  * Device Tree support for the Celestial (Cavium) CNC1800L SoC
+  */
+ 
++#include <linux/bits.h>
++#include <linux/delay.h>
+ #include <linux/io.h>
+ #include <linux/reboot.h>
+ #include <asm/mach/arch.h>
+@@ -10,6 +12,11 @@
+ /* Watchdog, as used by the vendor BSP arch_reset() (mach/system.h) */
+ #define CNC1800L_WDT_BASE	0x801e1000
+ 
++/* Clock and reset block, vendor mach/cnc1800l_power_clk.h */
++#define CNC1800L_CLOCK_BASE	0xb2100000
++#define  CLOCK_SOFT_RESET	0x200
++#define  CLOCK_USB_ULPI_BYPASS	0x218
++
+ static void __iomem *wdt;
+ 
+ static void cnc1800l_restart(enum reboot_mode mode, const char *cmd)
+@@ -25,10 +32,33 @@ static void cnc1800l_restart(enum reboot_mode mode, const char *cmd)
+ 	writew(1, wdt + 0x00);
+ }
+ 
++/*
++ * USB, from the vendor glue drivers: ehci-cnc18xx.c cnc18xx_start_ehc()
++ * pulses the USB reset (clock_usb_reset(), bit 4) and sets the PHY bypass
++ * bits (clock_usb1phy_bypassenable()), ohci-cnc18xx.c cnc18xx_start_hc()
++ * writes 3 ("enable and 48MHz") to the same register. The vendor U-Boot
++ * clears that register again on "usb stop" (ehci_hcd_stop()), which bootm
++ * runs before starting Linux.
++ */
++static void __init cnc1800l_usb_init(void __iomem *clk)
++{
++	u32 val = readl(clk + CLOCK_SOFT_RESET);
++
++	writel(val & ~BIT(4), clk + CLOCK_SOFT_RESET);
++	udelay(100);
++	writel(val | BIT(4), clk + CLOCK_SOFT_RESET);
++	writel(readl(clk + CLOCK_USB_ULPI_BYPASS) | 0x3, clk + CLOCK_USB_ULPI_BYPASS);
++}
++
+ static void __init cnc1800l_init_machine(void)
+ {
++	void __iomem *clk = ioremap(CNC1800L_CLOCK_BASE, 0x1000);
++
+ 	/* mapped here: restart runs with interrupts off and cannot ioremap */
+ 	wdt = ioremap(CNC1800L_WDT_BASE, 0x1000);
++
++	cnc1800l_usb_init(clk);
++	iounmap(clk);
+ }
+ 
+ static const char * const cnc1800l_dt_compat[] __initconst = {
+-- 
+2.47.3
+
