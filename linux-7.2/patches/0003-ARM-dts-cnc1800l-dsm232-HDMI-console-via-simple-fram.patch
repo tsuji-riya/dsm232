@@ -1,12 +1,12 @@
-From e6d192ef71da8fb11e47b95e3398d49f021e88b7 Mon Sep 17 00:00:00 2001
+From 5f284fbbb31e94271f031a83c217f94209e338a1 Mon Sep 17 00:00:00 2001
 From: Tsuji Riya <tsuji.riya@gmail.com>
 Date: Sat, 31 Oct 2026 20:22:20 +0000
-Subject: [PATCH 3/3] ARM: dts: cnc1800l-dsm232: HDMI console via
+Subject: [PATCH 3/6] ARM: dts: cnc1800l-dsm232: HDMI console via
  simple-framebuffer
 
 The vendor U-Boot "logo" command starts the HDMI output and scans out
-an RGB565 buffer at 0x0c000000. Use mode 7, its largest mode: 1920x1080,
-stride 3840. Describe the buffer as a simple-framebuffer so that fbcon
+an RGB565 buffer at 0x0c000000. Use mode 16, 1920x1080 progressive
+60Hz, stride 3840 (the vendor "1080P" mode 7 is 1080i). Describe the buffer as a simple-framebuffer so that fbcon
 gives a tty on HDMI without a display driver.
 
 Add mem=137M to the DT bootargs: the vendor U-Boot passes ATAG_MEM for
@@ -18,15 +18,15 @@ simplefb and the framebuffer console.
 
 Framebuffer geometry was read from the vendor U-Boot binary.
 ---
- .../boot/dts/celestial/cnc1800l-dsm232.dts    | 26 ++++++++++++++++++-
+ .../boot/dts/celestial/cnc1800l-dsm232.dts    | 27 ++++++++++++++++++-
  arch/arm/configs/cnc1800l_defconfig           |  6 +++++
- 2 files changed, 31 insertions(+), 1 deletion(-)
+ 2 files changed, 32 insertions(+), 1 deletion(-)
 
 diff --git a/arch/arm/boot/dts/celestial/cnc1800l-dsm232.dts b/arch/arm/boot/dts/celestial/cnc1800l-dsm232.dts
-index 5827699..5eada87 100644
+index 582769993..c5ad80cc6 100644
 --- a/arch/arm/boot/dts/celestial/cnc1800l-dsm232.dts
 +++ b/arch/arm/boot/dts/celestial/cnc1800l-dsm232.dts
-@@ -8,8 +8,32 @@
+@@ -8,8 +8,33 @@ / {
  	compatible = "dlink,dsm-232-a1", "celestial,cnc1800l";
  
  	chosen {
@@ -46,8 +46,9 @@ index 5827699..5eada87 100644
 +		/*
 +		 * Scan-out buffer set up by the vendor U-Boot "logo" command
 +		 * (it clears 0x0c000000 and starts HDMI). Values for
-+		 * "logo 7 2 ...": 1080p (largest logo mode), RGB565,
-+		 * 2 bytes/pixel. Must match the mode in the boot script.
++		 * "logo 16 2 ...": 1920x1080 progressive 60Hz (mode 7, the
++		 * vendor's "1080P", is 1080i), RGB565, 2 bytes/pixel.
++		 * Must match the mode in the boot script.
 +		 */
 +		framebuffer@c000000 {
 +			compatible = "simple-framebuffer";
@@ -61,7 +62,7 @@ index 5827699..5eada87 100644
  
  	/*
 diff --git a/arch/arm/configs/cnc1800l_defconfig b/arch/arm/configs/cnc1800l_defconfig
-index eb1175a..689bf67 100644
+index eb1175a75..689bf6779 100644
 --- a/arch/arm/configs/cnc1800l_defconfig
 +++ b/arch/arm/configs/cnc1800l_defconfig
 @@ -36,3 +36,9 @@ CONFIG_SPI_DESIGNWARE=y

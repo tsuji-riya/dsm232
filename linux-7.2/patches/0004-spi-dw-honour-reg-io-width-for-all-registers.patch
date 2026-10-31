@@ -1,4 +1,4 @@
-From e5284497eaa8516360b3d14c43c2206141608938 Mon Sep 17 00:00:00 2001
+From 6ad27cd9a24447c1dfebf4cdf26a613986bf94d4 Mon Sep 17 00:00:00 2001
 From: Tsuji Riya <tsuji.riya@gmail.com>
 Date: Sat, 31 Oct 2026 20:29:27 +0000
 Subject: [PATCH 4/6] spi: dw: honour reg-io-width for all registers
