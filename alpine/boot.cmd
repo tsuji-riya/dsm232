@@ -23,6 +23,9 @@ if test -n "${avivic}"; then
 	mw.l 0x804004f8 33
 	mw.l 0x80400120 10
 fi
+# A/B test: setenv hdcpoff 1 -> stop the HDCP encryption hdmi.bin authenticates (SiI HDCP_CTRL 0x72:0x0f);
+# after boot nothing services the HDCP link any more
+if test "${hdcpoff}" = 1; then mw.l 0x8040003c 0; fi
 fatload usb 0:1 0x4000000 uImage
 fatload usb 0:1 0x5000000 uInitrd
 # appended to the DT bootargs (earlycon console=ttyS0,115200n8 mem=137M); last console= becomes /dev/console
