@@ -3,9 +3,10 @@
 **状態**: 4 項目とも `./build-usb.sh` は通る。実機で確認できたものは次のとおり(2026-11-01)。
 - HDMI: `logo` を使わずに 1080p60 で tty1 が表示された(HDCP 認証は 2 回目で成功)。
 - USB: 起動に使った USB メモリが `sda` として認識された。
-- Wi-Fi: ath6kl が AR6003 hw2.1.1 のファーム 3.2.0.144 を読み込んだ。
+- USB: `/dev/sda1` をマウントして中身が読めた。
+- Wi-Fi: ath6kl が AR6003 hw2.1.1 のファーム 3.2.0.144 を読み込み、`iw dev wlan0 scan` で周囲の AP が見えた。
 
-reboot / poweroff、USB メモリのマウント、Wi-Fi のスキャン・接続、USB 上の ext4 root は**未検証**。カーネル変更は `linux-7.2/patches/0007`〜`0010`、ユーザーランドは `alpine/build.sh`・`alpine/boot.cmd`。
+reboot / poweroff、Wi-Fi の接続、USB 上の ext4 root、HDMI のホットプラグは**未検証**。カーネル変更は `linux-7.2/patches/0007`〜`0010`、ユーザーランドは `alpine/build.sh`・`alpine/boot.cmd`。
 
 根拠の出典の略記:
 - **BSP** = 純正 Linux 2.6.32 BSP(`crisprelease/buildroot/linux/kernel-patch/linux-1800l-2-6-32.patch` を当てたツリー)
@@ -207,6 +208,11 @@ SYS_CTRL1 を直した後、テレビは 1080p60 で同期するようになっ�
   - HDCP 鍵は送信部が内蔵している(AKSV がコールド状態でも読める)。
   - リピータ用の第 2 段階(SHA)と、Ri によるリンク監視は実装していない。そのため、テレビを挿し直すと黒に戻る。
 - 最初の版は起動処理の中で 1 回だけ認証し、`-22`(当時は BKSV 不正もこの番号)で失敗した。純正 U-Boot でも、最初の数回は `DDC Time Out` → `No HDCP Dev` で失敗してから認証が通る。そこで、起動処理とは別に 1 秒おき・最大 30 回まで再試行するようにした。
+- **ホットプラグ対応**: 同じ処理が 1 秒おきに次の 2 つを確認する。
+  - SYS_STAT の HPD と、INT1 bit6(HPD の変化。純正 `siiTXHDCP_CheckHPDChanged()` と同じ)
+  - 2 秒おきに、受信側と送信部の Ri を照合する(テレビの入力切り替えのように HPD が変わらずに HDCP が切れる場合に備える)
+  - 挿し直しや、2 回続けての Ri 不一致を検出したら、送信部のレジスタを設定し直し(リセットパルスはかけない)、HDCP を再認証する。
+  - ログ: 抜くと `HDMI unplugged`、挿すと `HDMI plugged, setting up again` → `HDCP authenticated`。Ri が合わないと `HDMI link lost, setting up again`。**未検証**。
 - UART に `cnc1800l-display: HDCP authenticated (try N)` が出れば認証成功。`HDCP authentication failed (エラー番号)` の番号の意味は次のとおり。
   - -19: HPD なし
   - -5: DDC 失敗

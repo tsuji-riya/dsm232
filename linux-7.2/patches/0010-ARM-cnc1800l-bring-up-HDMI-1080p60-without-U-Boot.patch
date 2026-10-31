@@ -1,6 +1,6 @@
-From ff38acf9edf955689bd7858fe80d748769af7863 Mon Sep 17 00:00:00 2001
+From 29222f1282a9dff0099536dba3c769cc33b12cd4 Mon Sep 17 00:00:00 2001
 From: Tsuji Riya <tsuji.riya@gmail.com>
-Date: Sat, 31 Oct 2026 23:50:11 +0000
+Date: Sat, 31 Oct 2026 23:57:08 +0000
 Subject: [PATCH 10/10] ARM: cnc1800l: bring up HDMI 1080p60 without U-Boot
 
 The DSM-232 console relied on the vendor U-Boot "logo" command to set
@@ -38,13 +38,16 @@ with AVMUTE around it. No repeater part 2 and no Ri link check.
 The receiver does not answer on DDC for a while after the link comes up
 (the vendor U-Boot also fails a few times first), so authentication runs
 from a delayed work and retries every second, up to 30 times.
+The same work polls every second for hotplug (HPD and its change
+interrupt, as siiTXHDCP_CheckHPDChanged()) and compares Ri every 2s; on a
+re-plug or a lost link it sets up the transmitter and authenticates again.
 ---
  .../boot/dts/celestial/cnc1800l-dsm232.dts    |  10 +-
  arch/arm/mach-celestial/Makefile              |   2 +-
- arch/arm/mach-celestial/cnc1800l-display.c    | 496 ++++++++++++++++++
+ arch/arm/mach-celestial/cnc1800l-display.c    | 545 ++++++++++++++++++
  arch/arm/mach-celestial/cnc1800l.c            |   4 +
  arch/arm/mach-celestial/common.h              |   7 +
- 5 files changed, 513 insertions(+), 6 deletions(-)
+ 5 files changed, 562 insertions(+), 6 deletions(-)
  create mode 100644 arch/arm/mach-celestial/cnc1800l-display.c
  create mode 100644 arch/arm/mach-celestial/common.h
 
@@ -79,10 +82,10 @@ index 470e01a5d..17a99c395 100644
 +obj-$(CONFIG_ARCH_CELESTIAL) += cnc1800l.o cnc1800l-display.o
 diff --git a/arch/arm/mach-celestial/cnc1800l-display.c b/arch/arm/mach-celestial/cnc1800l-display.c
 new file mode 100644
-index 000000000..dcd787af3
+index 000000000..d2069ea9e
 --- /dev/null
 +++ b/arch/arm/mach-celestial/cnc1800l-display.c
-@@ -0,0 +1,496 @@
+@@ -0,0 +1,545 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
 + * CNC1800L HDMI output without the vendor U-Boot "logo" command:
@@ -162,6 +165,7 @@ index 000000000..dcd787af3
 +#define   HDCP_AN_STOP		BIT(3)
 +#define   HDCP_RX_REPEATER	BIT(4)
 +#define   HDCP_BKSV_ERROR	BIT(5)
++#define   HDCP_ENC_ON		BIT(6)
 +#define  SYS_HDCP_BKSV		0x10	/* 5 bytes */
 +#define  SYS_HDCP_AN		0x15	/* 8 bytes */
 +#define  SYS_HDCP_AKSV		0x1d	/* 5 bytes */
@@ -171,6 +175,8 @@ index 000000000..dcd787af3
 +#define  SYS_VID_ACEN		0x49
 +#define  SYS_VID_MODE		0x4a
 +#define  SYS_VID_BLANK1		0x4b
++#define  SYS_INTR1		0x71
++#define   INTR1_HPD		BIT(6)	/* HPD changed, write 1 to clear */
 +#define  SYS_TMDS_CTRL		0x82
 +/* DDC master (SiITXHDCP.h MASTER_BASE): slave, segment, offset, count LSB/MSB */
 +#define  SYS_DDC_ADDR		0xed
@@ -300,7 +306,7 @@ index 000000000..dcd787af3
 +	hdmi_av(hdmi, AV_PB_CTRL2, ctrl | 0x0c);	/* on, every frame */
 +}
 +
-+static void __init cnc1800l_display_hdmi(void __iomem *hdmi)
++static void cnc1800l_display_hdmi(void __iomem *hdmi)
 +{
 +	/*
 +	 * AVI InfoFrame, not the one of hdmi.bin (VIC 1, BT.601): YCbCr 4:4:4
@@ -416,7 +422,8 @@ index 000000000..dcd787af3
 +	if (ones != 20)		/* a KSV has 20 ones and 20 zeros */
 +		return -ENXIO;
 +
-+	ctrl = hdmi_rd(hdmi, SYS_HDCP_CTRL) | HDCP_CP_RESETN;
++	/* encryption off while authenticating (siiTXHDCP_AuthenticationPart1()) */
++	ctrl = (hdmi_rd(hdmi, SYS_HDCP_CTRL) & ~HDCP_ENC_EN) | HDCP_CP_RESETN;
 +	hdmi_sys(hdmi, SYS_HDCP_CTRL, ctrl);
 +	if (hdcp_rx_read(hdmi, RX_BCAPS, &bcaps, 1))
 +		return -EIO;
@@ -457,35 +464,80 @@ index 000000000..dcd787af3
 +	return 0;
 +}
 +
-+/*
-+ * The receiver does not answer on DDC for a while after the link comes up
-+ * (the vendor U-Boot also fails with "No HDCP Dev" before "Authenticated"):
-+ * retry in the background like the vendor state machine.
-+ */
-+#define HDCP_TRIES	30
++/* Ri, which the receiver updates every 128 frames: read ours around its value */
++static bool hdcp_link_ok(void __iomem *hdmi)
++{
++	u8 rx[2], tx[4];
 +
++	if (!(hdmi_rd(hdmi, SYS_HDCP_CTRL) & HDCP_ENC_ON))
++		return false;
++	tx[0] = hdmi_rd(hdmi, SYS_HDCP_RI);
++	tx[1] = hdmi_rd(hdmi, SYS_HDCP_RI + 1);
++	if (hdcp_rx_read(hdmi, RX_RI, rx, 2))
++		return false;
++	tx[2] = hdmi_rd(hdmi, SYS_HDCP_RI);
++	tx[3] = hdmi_rd(hdmi, SYS_HDCP_RI + 1);
++	return (rx[0] == tx[0] && rx[1] == tx[1]) || (rx[0] == tx[2] && rx[1] == tx[3]);
++}
++
++/*
++ * HDCP and hotplug, polled every second like the vendor state machine
++ * (siiTXHDCP_CheckHPDChanged()): the receiver does not answer on DDC for a
++ * while after the link comes up, a re-plugged TV needs the transmitter set
++ * up and authenticated again, and a TV switching inputs may drop HDCP
++ * without an HPD change (caught by comparing Ri every 2s).
++ */
 +static void __iomem *hdcp_hdmi;
-+static int hdcp_try;
++static bool hdcp_on;
++static unsigned int hdcp_fails, hdcp_polls, hdcp_bad;
 +
 +static void cnc1800l_display_hdcp_work(struct work_struct *work)
 +{
-+	struct delayed_work *dwork = to_delayed_work(work);
++	void __iomem *hdmi = hdcp_hdmi;
++	bool hpd = hdmi_rd(hdmi, SYS_SYS_STAT) & SYS_STAT_HPD;
++	bool replug = hdmi_rd(hdmi, SYS_INTR1) & INTR1_HPD;
 +	int ret;
 +
-+	/* siiTXHDCP_AuthenticationPart1(): encryption changes under AVMUTE */
-+	hdmi_avmute(hdcp_hdmi, true);
-+	ret = cnc1800l_display_hdcp(hdcp_hdmi);
-+	hdmi_avmute(hdcp_hdmi, false);
-+	if (!ret) {
-+		pr_info("cnc1800l-display: HDCP authenticated (try %d)\n", hdcp_try + 1);
-+	} else if (++hdcp_try < HDCP_TRIES) {
-+		if (hdcp_try == 1)
-+			pr_info("cnc1800l-display: HDCP not ready (%d), retrying\n", ret);
-+		schedule_delayed_work(dwork, HZ);
-+	} else {
-+		pr_warn("cnc1800l-display: HDCP authentication failed (%d), the picture stays blank\n", ret);
-+		iounmap(hdcp_hdmi);
++	if (replug)
++		hdmi_sys(hdmi, SYS_INTR1, INTR1_HPD);
++	if (!hpd) {
++		if (hdcp_on)
++			pr_info("cnc1800l-display: HDMI unplugged\n");
++		hdcp_on = false;
++		goto again;
 +	}
++	if (hdcp_on && !replug) {
++		if (++hdcp_polls % 2)
++			goto again;
++		if (hdcp_link_ok(hdmi)) {
++			hdcp_bad = 0;
++			goto again;
++		}
++		if (++hdcp_bad < 2)	/* one failed DDC read is no lost link */
++			goto again;
++	}
++	if (hdcp_on || replug) {
++		pr_info("cnc1800l-display: HDMI %s, setting up again\n", replug ? "plugged" : "link lost");
++		hdcp_on = false;
++		hdcp_fails = 0;
++		hdcp_bad = 0;
++		cnc1800l_display_hdmi(hdmi);
++	}
++
++	/* siiTXHDCP_AuthenticationPart1(): encryption changes under AVMUTE */
++	hdmi_avmute(hdmi, true);
++	ret = cnc1800l_display_hdcp(hdmi);
++	hdmi_avmute(hdmi, false);
++	if (!ret) {
++		pr_info("cnc1800l-display: HDCP authenticated (try %u)\n", hdcp_fails + 1);
++		hdcp_on = true;
++	} else if (hdcp_fails++ == 0) {
++		pr_info("cnc1800l-display: HDCP not ready (%d), retrying\n", ret);
++	} else if (hdcp_fails == 30) {
++		pr_warn("cnc1800l-display: HDCP still failing (%d), the picture stays blank\n", ret);
++	}
++again:
++	schedule_delayed_work(to_delayed_work(work), HZ);
 +}
 +
 +static DECLARE_DELAYED_WORK(hdcp_work, cnc1800l_display_hdcp_work);
