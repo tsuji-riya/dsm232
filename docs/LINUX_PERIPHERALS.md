@@ -6,7 +6,9 @@
 - USB: `/dev/sda1` をマウントして中身が読めた。
 - Wi-Fi: ath6kl が AR6003 hw2.1.1 のファーム 3.2.0.144 を読み込み、`iw dev wlan0 scan` で周囲の AP が見えた。
 
-reboot / poweroff、Wi-Fi の接続、USB 上の ext4 root、HDMI のホットプラグは**未検証**。カーネル変更は `linux-7.2/patches/0007`〜`0010`、ユーザーランドは `alpine/build.sh`・`alpine/boot.cmd`。
+- HDMI ホットプラグ: ケーブルの抜き差しとテレビの入力切り替えのどちらでも、画面が戻った(再認証は 2 回目で成功)。
+
+reboot / poweroff、Wi-Fi の接続、USB 上の ext4 root は**未検証**。カーネル変更は `linux-7.2/patches/0007`〜`0010`、ユーザーランドは `alpine/build.sh`・`alpine/boot.cmd`。
 
 根拠の出典の略記:
 - **BSP** = 純正 Linux 2.6.32 BSP(`crisprelease/buildroot/linux/kernel-patch/linux-1800l-2-6-32.patch` を当てたツリー)
@@ -212,7 +214,7 @@ SYS_CTRL1 を直した後、テレビは 1080p60 で同期するようになっ�
   - SYS_STAT の HPD(H→L→H の変化で挿し直しと判断する)。純正 `siiTXHDCP_CheckHPDChanged()` が見ている INT1 bit6(HPD 変化)は使わない。実機では再設定そのものでこのビットが立ち直り、数秒ごとに再設定を繰り返して画面が点滅した。
   - 2 秒おきに、受信側と送信部の Ri を照合する(テレビの入力切り替えのように HPD が変わらずに HDCP が切れる場合に備える)
   - 挿し直しや、2 回続けての Ri 不一致を検出したら、送信部のレジスタを設定し直し(リセットパルスはかけない)、HDCP を再認証する。
-  - ログ: 抜くと `HDMI unplugged`、挿すと `HDMI plugged, setting up again` → `HDCP authenticated`。Ri が合わないと `HDMI link lost, setting up again`。**未検証**。
+  - ログ: 抜くと `HDMI unplugged`、挿すと `HDMI plugged, setting up again` → `HDCP authenticated`。Ri が合わないと `HDMI link lost, setting up again`。実機で確認済み。
 - UART に `cnc1800l-display: HDCP authenticated (try N)` が出れば認証成功。`HDCP authentication failed (エラー番号)` の番号の意味は次のとおり。
   - -19: HPD なし
   - -5: DDC 失敗
