@@ -1,6 +1,6 @@
-From 431ccb33116809ea8fb6ab0542ef43c659f96b9a Mon Sep 17 00:00:00 2001
+From 0fd24c269527d1f47d0fd968a088d858f6dc0a54 Mon Sep 17 00:00:00 2001
 From: Tsuji Riya <tsuji.riya@gmail.com>
-Date: Sat, 31 Oct 2026 22:40:23 +0000
+Date: Sun, 1 Nov 2026 00:15:28 +0000
 Subject: [PATCH 08/10] ARM: cnc1800l: add the USB host controllers
 
 Describe the EHCI (0x80200000, IRQ 22) and its OHCI companion

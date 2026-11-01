@@ -1,6 +1,6 @@
-From 32a80bbeb9d36ad0a90d2d1c97175f63ca04f0ce Mon Sep 17 00:00:00 2001
+From 2fbbabfcfa9507c53c9f953e2a5b179875983e58 Mon Sep 17 00:00:00 2001
 From: Tsuji Riya <tsuji.riya@gmail.com>
-Date: Sat, 31 Oct 2026 22:40:23 +0000
+Date: Sun, 1 Nov 2026 00:15:28 +0000
 Subject: [PATCH 07/10] ARM: cnc1800l: restart through the watchdog
 
 Reboot hung with "Reboot failed -- System halted": nothing could reset

@@ -1,6 +1,6 @@
-From 878fdd6ee12f094eedad929d4353a8e76a6f0ee3 Mon Sep 17 00:00:00 2001
+From bf0012a90b27ef297b07b8af83bd65469e1fad64 Mon Sep 17 00:00:00 2001
 From: Tsuji Riya <tsuji.riya@gmail.com>
-Date: Sat, 31 Oct 2026 22:40:24 +0000
+Date: Sun, 1 Nov 2026 00:15:29 +0000
 Subject: [PATCH 09/10] ARM: cnc1800l: add SDIO and the AR6003 Wi-Fi of the
  DSM-232
 
@@ -14,12 +14,16 @@ held in reset by GPIO 10. The vendor GPIO block has its direction
 register inverted (1 = input), which the generic MMIO GPIO driver
 handles with a "dirin" register; describe port A only. Use
 mmc-pwrseq-simple for the reset line and ath6kl_sdio for the chip.
+
+Wi-Fi power save is off by default: with it, ping times on hardware
+varied between 27 and 322ms, without it they stay around 20ms (the
+vendor also turned it off).
 ---
  .../boot/dts/celestial/cnc1800l-dsm232.dts    | 21 +++++++++++++
  arch/arm/boot/dts/celestial/cnc1800l.dtsi     | 31 +++++++++++++++++++
- arch/arm/configs/cnc1800l_defconfig           | 17 ++++++++++
+ arch/arm/configs/cnc1800l_defconfig           | 18 +++++++++++
  arch/arm/mach-celestial/cnc1800l.c            | 20 ++++++++++++
- 4 files changed, 89 insertions(+)
+ 4 files changed, 90 insertions(+)
 
 diff --git a/arch/arm/boot/dts/celestial/cnc1800l-dsm232.dts b/arch/arm/boot/dts/celestial/cnc1800l-dsm232.dts
 index 420d9af38..91fb5b40a 100644
@@ -110,10 +114,10 @@ index e7c731e67..15f03bc36 100644
  			compatible = "snps,dw-apb-uart";
  			reg = <0x801f1000 0x100>;
 diff --git a/arch/arm/configs/cnc1800l_defconfig b/arch/arm/configs/cnc1800l_defconfig
-index 1db3a95a2..9c8d286bf 100644
+index 1db3a95a2..fbef949e1 100644
 --- a/arch/arm/configs/cnc1800l_defconfig
 +++ b/arch/arm/configs/cnc1800l_defconfig
-@@ -54,3 +54,20 @@ CONFIG_EXT4_FS=y
+@@ -54,3 +54,21 @@ CONFIG_EXT4_FS=y
  CONFIG_VFAT_FS=y
  CONFIG_NLS_CODEPAGE_437=y
  CONFIG_NLS_ISO8859_1=y
@@ -122,6 +126,7 @@ index 1db3a95a2..9c8d286bf 100644
 +CONFIG_UNIX=y
 +CONFIG_INET=y
 +CONFIG_CFG80211=y
++# CONFIG_CFG80211_DEFAULT_PS is not set
 +CONFIG_NETDEVICES=y
 +# CONFIG_ETHERNET is not set
 +CONFIG_ATH6KL=y

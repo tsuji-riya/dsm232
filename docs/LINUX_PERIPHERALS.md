@@ -9,10 +9,10 @@
 - HDMI ホットプラグ: ケーブルの抜き差しとテレビの入力切り替えのどちらでも、画面が戻った(再認証は 2 回目で成功)。
 - Wi-Fi 接続: `wpa_supplicant` + `udhcpc` で DHCP のアドレスを取得し、インターネットへの ping が通った。MAC は汎用 board data の `fc:4d:d4:70:1b:7f` で、純正の `wifiaddr` とは異なる。
   - `rfkill: Cannot open RFKILL control device` は、カーネルが RFKILL 無しでビルドされているため出るだけで、無害。
-  - ping の遅延が 27〜322ms とばらつく。純正は `iw dev wlan0 set power_save off` を実行していたので、省電力モードが原因の可能性がある(未確認)。
+  - ping の遅延が 27〜322ms とばらついたが、`iw dev wlan0 set power_save off` で 20ms 台に安定した。そのため、カーネルの既定を省電力なしにした。
 - reboot / poweroff: `reboot` で再起動し、`poweroff` で停止した。
 
-USB 上の ext4 root は**未検証**。カーネル変更は `linux-7.2/patches/0007`〜`0010`、ユーザーランドは `alpine/build.sh`・`alpine/boot.cmd`。
+USB 上の ext4 root(既定の rootfs)と、起動時の Wi-Fi 自動接続・NTP は**未検証**。カーネル変更は `linux-7.2/patches/0007`〜`0010`、ユーザーランドは `alpine/build.sh`・`alpine/boot.cmd`。
 
 根拠の出典の略記:
 - **BSP** = 純正 Linux 2.6.32 BSP(`crisprelease/buildroot/linux/kernel-patch/linux-1800l-2-6-32.patch` を当てたツリー)
@@ -68,11 +68,25 @@ mount /dev/sda1 /mnt && ls /mnt     # uImage uInitrd boot.scr が見えれば成
   - EHCI の probe でエラーが出る、または `new high-speed` が出ない場合は、DTS の EHCI を `reg = <0x80200100 0xf00>`(BSP の配置)に変えて比較する。
   - `irq 22: nobody cared` は IRQ 番号の誤りを示す。
 
-### 任意: USB 上の ext4 を rootfs にする
-`alpine/build.sh` は initramfs と同じ中身を `out/rootfs.tar.gz` にも出力する。initramfs の `/init` は、カーネル引数に `root=` があればそのデバイスをマウントし、`switch_root` する(失敗したら initramfs のまま起動)。
-1. PC で USB メモリにイメージを書いた後、64MB より後ろに第 2 パーティションを作り、ext4 にする(Linux PC の例: `sudo fdisk /dev/sdX` で 2 番を追加 → `sudo mkfs.ext4 /dev/sdX2`)。
-2. `sudo mount /dev/sdX2 /mnt && sudo tar -xzpf out/rootfs.tar.gz -C /mnt && sudo umount /mnt`(所有者を root にするため sudo が必要)
-3. U-Boot で `setenv extraargs root=/dev/sda2; run bootcmd`(固定するなら `saveenv`。書き換わるのは SPI の環境変数領域だけ)
+### USB 上の ext4 を rootfs にする(既定)
+`out/dsm232-usb.img` は 512MB で、次の 2 パーティションを持つ。**未検証**。
+- 1: FAT16 63MB(`uImage`・`uInitrd`・`boot.scr`)
+- 2: ext4 448MB(ラベル `dsm232root`)。中身は initramfs と同じ Alpine。ビルド時に `fakeroot` + `mke2fs -d` で、所有者 root のまま作る。
+
+起動の流れ:
+1. `boot.cmd` は既定で `root=/dev/sda2` を渡す。
+2. initramfs の `/init` が `/dev/sda2` を最大 20 秒待ち、マウントして `switch_root` する。
+3. 見つからない、またはマウントできない場合は、そのまま RAM 上の initramfs で起動する。
+
+ext4 上では、`apk add` した物や設定が再起動後も残る。終了時は inittab の `umount -a -r` で読み込み専用に戻すので、`reboot` / `poweroff` で止めること(電源を抜かない)。
+- RAM だけで動かしたいとき: U-Boot で `setenv rootdev ram`
+- 448MB より大きくしたいとき: PC 上で第 2 パーティションを広げて `resize2fs` する(例: GParted)。
+- 別のパーティションに入れる場合は、`out/rootfs.tar.gz` を root 権限で展開する: `sudo tar -xzpf out/rootfs.tar.gz -C /mnt`。そのうえで U-Boot で `setenv rootdev /dev/sdaN` とする。
+
+確認(成功の目安):
+- UART に `waiting for /dev/sda2` が数回出たあと、`login:` が出る。
+- `mount | grep ' / '` が `/dev/sda2 on / type ext4 (rw,...)` になる。
+- 適当なファイルを作って `reboot` し、残っていれば成功。
 
 ## 3. Wi-Fi(パッチ 0009)
 
@@ -120,6 +134,13 @@ ping -c 3 1.1.1.1
   - dmesg に `mmc0: new high speed SDIO card at address 0001` と `ath6kl: ar6003 hw 2.1.1 sdio fw ...` が出る。
   - `iw dev` に wlan0 が出て、スキャン結果に AP が並ぶ。
   - `udhcpc` が `lease of ... obtained` を出す。
+- **起動時の自動接続**: `/etc/wpa_supplicant.conf` があれば、inittab から `/usr/local/sbin/dsm232-net` が起動し、次を順に行う。ext4 root では設定ファイルが残るので、作るのは 1 回でよい。
+  1. wlan0 が現れるのを最大 30 秒待つ
+  2. `wpa_supplicant -B`
+  3. `udhcpc -b`
+  4. `ntpd -p pool.ntp.org`
+- **時刻**: DSM-232 には RTC が無く、起動直後の時計は 1970 年になる。このままだと `apk update` が「TLS: server certificate not trusted」で失敗するため、上の自動接続で NTP を合わせている。手動でやる場合は `ntpd -q -n -p pool.ntp.org`。
+- **省電力**: カーネルの `CFG80211_DEFAULT_PS` を無効にした。実機で `iw dev wlan0 set power_save off` を実行すると、ping が 27〜322ms のばらつきから 20ms 台に安定したため。純正も同じコマンドを実行していた。
 - MAC アドレスを純正と同じにする場合: U-Boot の `printenv wifiaddr` の値を使い、`ip link set wlan0 down; ip link set wlan0 address C8:D3:A3:A9:45:8A`。mainline の ath6kl には純正の `softmac` 相当が無い。
 - 失敗時に見るもの:
   - `new ... SDIO card` が出ない(`mmc0: error -110` やタイムアウト): リセット GPIO・クロック・ピンマックスを疑う。`mount -t debugfs none /sys/kernel/debug; cat /sys/kernel/debug/gpio` と、dmesg の dw_mmc の行(`Version ID`、`FIFO depth`、`Using internal DMA controller`)を貼ってほしい。

@@ -55,9 +55,10 @@ mount -t devtmpfs devtmpfs /dev
 mkdir -p /dev/pts /dev/shm
 mount -t devpts devpts /dev/pts
 mount -t tmpfs tmpfs /run
-# root=/dev/sdXN on the kernel command line: switch to that file system (e.g. ext4 on the USB stick)
+# root=/dev/sdXN on the kernel command line: switch to that file system (ext4 on the USB stick,
+# partition 2 of out/dsm232-usb.img); anything else (root=ram) stays in the initramfs
 for a in $(cat /proc/cmdline); do case $a in root=*) root=${a#root=} ;; esac; done
-if [ -n "${root:-}" ]; then
+if [ "${root#/dev/}" != "${root:-}" ]; then
 	for i in $(seq 20); do [ -b "$root" ] && break; echo "waiting for $root"; sleep 1; done
 	mkdir -p /newroot
 	if mount "$root" /newroot && [ -x /newroot/sbin/init ]; then
@@ -73,12 +74,26 @@ chmod 755 rootfs/init
 # busybox init instead of OpenRC (not in minirootfs): a login on HDMI (tty1) and UART (ttyS0)
 cat > rootfs/etc/inittab <<'EOF'
 ::sysinit:/bin/hostname -F /etc/hostname
+::once:/usr/local/sbin/dsm232-net
 tty1::respawn:/sbin/getty 38400 tty1 linux
 ttyS0::respawn:/sbin/getty -L 115200 ttyS0 vt100
 ::ctrlaltdel:/sbin/reboot
 ::shutdown:/bin/umount -a -r
 EOF
 echo dsm232 > rootfs/etc/hostname
+# Wi-Fi at boot once /etc/wpa_supplicant.conf exists (made with wpa_passphrase); then NTP, since
+# there is no RTC and TLS (apk) fails with the clock at 1970
+mkdir -p rootfs/usr/local/sbin
+cat > rootfs/usr/local/sbin/dsm232-net <<'EOF'
+#!/bin/sh
+conf=/etc/wpa_supplicant.conf
+[ -f "$conf" ] || exit 0
+for i in $(seq 30); do [ -e /sys/class/net/wlan0 ] && break; sleep 1; done
+wpa_supplicant -B -i wlan0 -c "$conf" || exit 1
+udhcpc -i wlan0 -b
+ntpd -p pool.ntp.org
+EOF
+chmod 755 rootfs/usr/local/sbin/dsm232-net
 for f in bin/busybox sbin/getty bin/login bin/hostname etc/shadow; do
 	[ -e "rootfs/$f" ] || [ -L "rootfs/$f" ] || { echo "rootfs/$f missing in $FILE" >&2; exit 1; }
 done
@@ -88,7 +103,7 @@ grep -qx ttyS0 rootfs/etc/securetty 2>/dev/null || echo ttyS0 >> rootfs/etc/secu
 grep -qx tty1 rootfs/etc/securetty || echo tty1 >> rootfs/etc/securetty
 
 (cd rootfs && find . | LC_ALL=C sort | cpio -o -H newc -R 0:0 --quiet) | gzip -9 > initramfs.cpio.gz
-# the same tree for an ext4 root on the USB stick (extract as root, see docs/USB_WIFI.md)
+# the same tree as a tarball, e.g. for a larger ext4 root (extract as root, see docs/LINUX_PERIPHERALS.md)
 tar -czf rootfs.tar.gz --numeric-owner --owner=0 --group=0 -C rootfs .
 mkimage -A arm -O linux -T ramdisk -C none -a 0 -e 0 -n "${FILE%.tar.gz} dsm232" -d initramfs.cpio.gz uInitrd
 python3 -I "$HERE/../tools/display_emu/avi_check.py" "$HERE/boot.cmd"

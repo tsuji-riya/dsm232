@@ -31,7 +31,7 @@ RAM 配置: `0x4000000` uImage(<16MB)/ `0x5000000` uInitrd(<16MB)/ `0x6000000` b
 ```bash
 ./build-usb.sh
 ```
-結果: `out/dsm232-usb.img`(64MB、MBR + FAT16 に `uImage` / `uInitrd` / `boot.scr`)。同じ 3 ファイルが `out/usb/` にもある。初回はカーネル取得とビルドで数十分。カーネルソースは Docker ボリューム `dsm232-linux-src` に残り、2 回目以降は差分ビルド(macOS/Windows のホスト側ファイルシステムは大文字小文字を区別せず、カーネルの `xt_DSCP.h`/`xt_dscp.h` 等が壊れるため、リポジトリ内には置かない)。作り直すときは `docker volume rm dsm232-linux-src`。
+結果: `out/dsm232-usb.img`(512MB、MBR。第 1 パーティションは FAT16 で `uImage` / `uInitrd` / `boot.scr`、第 2 パーティションは ext4 の rootfs。[LINUX_PERIPHERALS.md](LINUX_PERIPHERALS.md) 2 節)。同じ 3 ファイルが `out/usb/` にもある。初回はカーネル取得とビルドで数十分。カーネルソースは Docker ボリューム `dsm232-linux-src` に残り、2 回目以降は差分ビルド(macOS/Windows のホスト側ファイルシステムは大文字小文字を区別せず、カーネルの `xt_DSCP.h`/`xt_dscp.h` 等が壊れるため、リポジトリ内には置かない)。作り直すときは `docker volume rm dsm232-linux-src`。
 
 ### 3.2 USB メモリに書く(中身は全部消える)
 Linux: デバイス名を `lsblk` で必ず確認してから。

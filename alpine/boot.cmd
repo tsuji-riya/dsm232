@@ -18,9 +18,12 @@ setenv dispargs
 if test x${hdmi} = xuboot; then run ubootdisp; fi
 fatload usb 0:1 0x4000000 uImage
 fatload usb 0:1 0x5000000 uInitrd
+# root file system: ext4 on partition 2 of the stick by default (the initramfs /init switches to it, and
+# stays in RAM if it is missing after 20s); setenv rootdev ram -> run from the initramfs only
+if test x${rootdev} = x; then setenv rootdev /dev/sda2; fi
 # appended to the DT bootargs (earlycon console=ttyS0,115200n8 mem=137M); last console= becomes /dev/console.
-# $extraargs: more kernel arguments, e.g. setenv extraargs root=/dev/sda2 (ext4 root on the stick)
-setenv bootargs console=tty1 ${dispargs} ${extraargs}
+# $extraargs: more kernel arguments
+setenv bootargs console=tty1 root=${rootdev} ${dispargs} ${extraargs}
 # use the ramdisk in place: U-Boot would otherwise move it above Linux's 137MB
 setenv initrd_high 0xffffffff
 bootm 0x4000000 0x5000000

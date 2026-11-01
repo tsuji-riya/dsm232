@@ -1,6 +1,6 @@
-From e57f81ae986802e80ad7f989c503d4f3b7fafbbd Mon Sep 17 00:00:00 2001
+From ea2b7033174bfb16e9264fa67734b12a9fc8509b Mon Sep 17 00:00:00 2001
 From: Tsuji Riya <tsuji.riya@gmail.com>
-Date: Sun, 1 Nov 2026 00:02:15 +0000
+Date: Sun, 1 Nov 2026 00:15:30 +0000
 Subject: [PATCH 10/10] ARM: cnc1800l: bring up HDMI 1080p60 without U-Boot
 
 The DSM-232 console relied on the vendor U-Boot "logo" command to set
