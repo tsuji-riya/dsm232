@@ -1,6 +1,6 @@
-From 29222f1282a9dff0099536dba3c769cc33b12cd4 Mon Sep 17 00:00:00 2001
+From e57f81ae986802e80ad7f989c503d4f3b7fafbbd Mon Sep 17 00:00:00 2001
 From: Tsuji Riya <tsuji.riya@gmail.com>
-Date: Sat, 31 Oct 2026 23:57:08 +0000
+Date: Sun, 1 Nov 2026 00:02:15 +0000
 Subject: [PATCH 10/10] ARM: cnc1800l: bring up HDMI 1080p60 without U-Boot
 
 The DSM-232 console relied on the vendor U-Boot "logo" command to set
@@ -38,9 +38,10 @@ with AVMUTE around it. No repeater part 2 and no Ri link check.
 The receiver does not answer on DDC for a while after the link comes up
 (the vendor U-Boot also fails a few times first), so authentication runs
 from a delayed work and retries every second, up to 30 times.
-The same work polls every second for hotplug (HPD and its change
-interrupt, as siiTXHDCP_CheckHPDChanged()) and compares Ri every 2s; on a
-re-plug or a lost link it sets up the transmitter and authenticates again.
+The same work polls HPD every second for hotplug and compares Ri every
+2s; on a re-plug or a lost link it sets up the transmitter and
+authenticates again. The vendor's HPD change interrupt bit is not used:
+the set-up itself sets it again on hardware, which looped.
 ---
  .../boot/dts/celestial/cnc1800l-dsm232.dts    |  10 +-
  arch/arm/mach-celestial/Makefile              |   2 +-
@@ -82,7 +83,7 @@ index 470e01a5d..17a99c395 100644
 +obj-$(CONFIG_ARCH_CELESTIAL) += cnc1800l.o cnc1800l-display.o
 diff --git a/arch/arm/mach-celestial/cnc1800l-display.c b/arch/arm/mach-celestial/cnc1800l-display.c
 new file mode 100644
-index 000000000..d2069ea9e
+index 000000000..0b9abf9e6
 --- /dev/null
 +++ b/arch/arm/mach-celestial/cnc1800l-display.c
 @@ -0,0 +1,545 @@
@@ -175,8 +176,6 @@ index 000000000..d2069ea9e
 +#define  SYS_VID_ACEN		0x49
 +#define  SYS_VID_MODE		0x4a
 +#define  SYS_VID_BLANK1		0x4b
-+#define  SYS_INTR1		0x71
-+#define   INTR1_HPD		BIT(6)	/* HPD changed, write 1 to clear */
 +#define  SYS_TMDS_CTRL		0x82
 +/* DDC master (SiITXHDCP.h MASTER_BASE): slave, segment, offset, count LSB/MSB */
 +#define  SYS_DDC_ADDR		0xed
@@ -481,31 +480,33 @@ index 000000000..d2069ea9e
 +}
 +
 +/*
-+ * HDCP and hotplug, polled every second like the vendor state machine
-+ * (siiTXHDCP_CheckHPDChanged()): the receiver does not answer on DDC for a
-+ * while after the link comes up, a re-plugged TV needs the transmitter set
-+ * up and authenticated again, and a TV switching inputs may drop HDCP
-+ * without an HPD change (caught by comparing Ri every 2s).
++ * HDCP and hotplug, polled every second like the vendor state machine: the
++ * receiver does not answer on DDC for a while after the link comes up, a
++ * re-plugged TV needs the transmitter set up and authenticated again, and a
++ * TV switching inputs (or a re-plug shorter than a poll) drops HDCP without
++ * an HPD change seen here (caught by comparing Ri every 2s). The HPD change
++ * interrupt bit of the vendor siiTXHDCP_CheckHPDChanged() is not used: on
++ * hardware it is set again by the set-up itself, which looped.
 + */
 +static void __iomem *hdcp_hdmi;
-+static bool hdcp_on;
++static bool hdcp_on, hdcp_unplugged;
 +static unsigned int hdcp_fails, hdcp_polls, hdcp_bad;
 +
 +static void cnc1800l_display_hdcp_work(struct work_struct *work)
 +{
 +	void __iomem *hdmi = hdcp_hdmi;
-+	bool hpd = hdmi_rd(hdmi, SYS_SYS_STAT) & SYS_STAT_HPD;
-+	bool replug = hdmi_rd(hdmi, SYS_INTR1) & INTR1_HPD;
++	bool replug;
 +	int ret;
 +
-+	if (replug)
-+		hdmi_sys(hdmi, SYS_INTR1, INTR1_HPD);
-+	if (!hpd) {
-+		if (hdcp_on)
++	if (!(hdmi_rd(hdmi, SYS_SYS_STAT) & SYS_STAT_HPD)) {
++		if (!hdcp_unplugged)
 +			pr_info("cnc1800l-display: HDMI unplugged\n");
 +		hdcp_on = false;
++		hdcp_unplugged = true;
 +		goto again;
 +	}
++	replug = hdcp_unplugged;
++	hdcp_unplugged = false;
 +	if (hdcp_on && !replug) {
 +		if (++hdcp_polls % 2)
 +			goto again;

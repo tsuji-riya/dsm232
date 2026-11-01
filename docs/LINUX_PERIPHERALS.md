@@ -209,7 +209,7 @@ SYS_CTRL1 を直した後、テレビは 1080p60 で同期するようになっ�
   - リピータ用の第 2 段階(SHA)と、Ri によるリンク監視は実装していない。そのため、テレビを挿し直すと黒に戻る。
 - 最初の版は起動処理の中で 1 回だけ認証し、`-22`(当時は BKSV 不正もこの番号)で失敗した。純正 U-Boot でも、最初の数回は `DDC Time Out` → `No HDCP Dev` で失敗してから認証が通る。そこで、起動処理とは別に 1 秒おき・最大 30 回まで再試行するようにした。
 - **ホットプラグ対応**: 同じ処理が 1 秒おきに次の 2 つを確認する。
-  - SYS_STAT の HPD と、INT1 bit6(HPD の変化。純正 `siiTXHDCP_CheckHPDChanged()` と同じ)
+  - SYS_STAT の HPD(H→L→H の変化で挿し直しと判断する)。純正 `siiTXHDCP_CheckHPDChanged()` が見ている INT1 bit6(HPD 変化)は使わない。実機では再設定そのものでこのビットが立ち直り、数秒ごとに再設定を繰り返して画面が点滅した。
   - 2 秒おきに、受信側と送信部の Ri を照合する(テレビの入力切り替えのように HPD が変わらずに HDCP が切れる場合に備える)
   - 挿し直しや、2 回続けての Ri 不一致を検出したら、送信部のレジスタを設定し直し(リセットパルスはかけない)、HDCP を再認証する。
   - ログ: 抜くと `HDMI unplugged`、挿すと `HDMI plugged, setting up again` → `HDCP authenticated`。Ri が合わないと `HDMI link lost, setting up again`。**未検証**。
