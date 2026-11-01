@@ -7,8 +7,12 @@
 - Wi-Fi: ath6kl が AR6003 hw2.1.1 のファーム 3.2.0.144 を読み込み、`iw dev wlan0 scan` で周囲の AP が見えた。
 
 - HDMI ホットプラグ: ケーブルの抜き差しとテレビの入力切り替えのどちらでも、画面が戻った(再認証は 2 回目で成功)。
+- Wi-Fi 接続: `wpa_supplicant` + `udhcpc` で DHCP のアドレスを取得し、インターネットへの ping が通った。MAC は汎用 board data の `fc:4d:d4:70:1b:7f` で、純正の `wifiaddr` とは異なる。
+  - `rfkill: Cannot open RFKILL control device` は、カーネルが RFKILL 無しでビルドされているため出るだけで、無害。
+  - ping の遅延が 27〜322ms とばらつく。純正は `iw dev wlan0 set power_save off` を実行していたので、省電力モードが原因の可能性がある(未確認)。
+- reboot / poweroff: `reboot` で再起動し、`poweroff` で停止した。
 
-reboot / poweroff、Wi-Fi の接続、USB 上の ext4 root は**未検証**。カーネル変更は `linux-7.2/patches/0007`〜`0010`、ユーザーランドは `alpine/build.sh`・`alpine/boot.cmd`。
+USB 上の ext4 root は**未検証**。カーネル変更は `linux-7.2/patches/0007`〜`0010`、ユーザーランドは `alpine/build.sh`・`alpine/boot.cmd`。
 
 根拠の出典の略記:
 - **BSP** = 純正 Linux 2.6.32 BSP(`crisprelease/buildroot/linux/kernel-patch/linux-1800l-2-6-32.patch` を当てたツリー)
