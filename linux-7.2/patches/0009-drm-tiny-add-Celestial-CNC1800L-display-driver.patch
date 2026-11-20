@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Tsuji Riya <tsuji.riya@gmail.com>
 Date: Fri, 20 Nov 2026 01:21:15 +0000
-Subject: [PATCH 09/10] drm/tiny: add Celestial CNC1800L display driver
+Subject: [PATCH 09/13] drm/tiny: add Celestial CNC1800L display driver
 
 Output 0 and graphics layer 1 of the display feeder and the Silicon
 Image HDMI transmitter of the SoC: modes from the EDID read through

@@ -1,0 +1,99 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tsuji Riya <tsuji.riya@gmail.com>
+Date: Fri, 20 Nov 2026 06:20:01 +0000
+Subject: [PATCH 12/13] wifi: ath6kl: take the AR6003 MAC address from DT
+
+The AR6003 firmware takes its MAC address from the board data in target
+RAM. OTP puts the address programmed in the module there, so a board
+whose vendor assigns its own address (in the boot loader environment,
+for example) cannot use it.
+
+After OTP, read the MAC address of the SDIO function node with
+of_get_mac_address(), which also covers nvmem cells, and write it into
+the board data. The board data checksum, an XOR of its 16-bit words, is
+kept valid by XORing in the change. Without an address in DT nothing
+changes.
+---
+ drivers/net/wireless/ath/ath6kl/init.c   | 41 ++++++++++++++++++++++++
+ drivers/net/wireless/ath/ath6kl/target.h |  2 ++
+ 2 files changed, 43 insertions(+)
+
+diff --git a/drivers/net/wireless/ath/ath6kl/init.c b/drivers/net/wireless/ath/ath6kl/init.c
+index 782209dcb..9900f4ee5 100644
+--- a/drivers/net/wireless/ath/ath6kl/init.c
++++ b/drivers/net/wireless/ath/ath6kl/init.c
+@@ -22,6 +22,7 @@
+ #include <linux/errno.h>
+ #include <linux/export.h>
+ #include <linux/of.h>
++#include <linux/of_net.h>
+ #include <linux/mmc/sdio_func.h>
+ #include <linux/vmalloc.h>
+ 
+@@ -1350,6 +1351,42 @@ static int ath6kl_upload_otp(struct ath6kl *ar)
+ 	return ret;
+ }
+ 
++/*
++ * A MAC address from DT (for example an nvmem cell of the boot loader
++ * environment) replaces the one in the board data in target RAM, where OTP
++ * has put the address programmed in the module. The board data checksum,
++ * an XOR of its 16-bit words, is kept by XORing in the change.
++ */
++static int ath6kl_set_dt_mac_address(struct ath6kl *ar)
++{
++	u8 mac[ETH_ALEN], buf[AR6003_MAC_ADDRESS_OFFSET + ETH_ALEN];
++	u32 address;
++	int i, ret;
++
++	if (ar->target_type != TARGET_TYPE_AR6003)
++		return 0;
++
++	ret = of_get_mac_address(ar->dev->of_node, mac);
++	if (ret == -EPROBE_DEFER)
++		ath6kl_warn("MAC address in DT not available yet\n");
++	if (ret)
++		return 0;
++
++	ret = ath6kl_bmi_read_hi32(ar, hi_board_data, &address);
++	if (!ret)
++		ret = ath6kl_bmi_read(ar, address, buf, sizeof(buf));
++	if (ret)
++		return ret;
++
++	for (i = 0; i < ETH_ALEN; i++)
++		buf[AR6003_BOARD_CHECKSUM_OFFSET + i % 2] ^=
++			buf[AR6003_MAC_ADDRESS_OFFSET + i] ^ mac[i];
++	memcpy(buf + AR6003_MAC_ADDRESS_OFFSET, mac, ETH_ALEN);
++
++	ath6kl_dbg(ATH6KL_DBG_BOOT, "MAC address %pM from DT\n", mac);
++	return ath6kl_bmi_write(ar, address, buf, sizeof(buf));
++}
++
+ static int ath6kl_upload_firmware(struct ath6kl *ar)
+ {
+ 	u32 address;
+@@ -1544,6 +1581,10 @@ static int ath6kl_init_upload(struct ath6kl *ar)
+ 	if (status)
+ 		return status;
+ 
++	status = ath6kl_set_dt_mac_address(ar);
++	if (status)
++		return status;
++
+ 	/* Download Target firmware */
+ 	status = ath6kl_upload_firmware(ar);
+ 	if (status)
+diff --git a/drivers/net/wireless/ath/ath6kl/target.h b/drivers/net/wireless/ath/ath6kl/target.h
+index d5eeeae77..a7c3cd10b 100644
+--- a/drivers/net/wireless/ath/ath6kl/target.h
++++ b/drivers/net/wireless/ath/ath6kl/target.h
+@@ -21,6 +21,8 @@
+ #define AR6003_BOARD_DATA_SZ		1024
+ #define AR6003_BOARD_EXT_DATA_SZ	768
+ #define AR6003_BOARD_EXT_DATA_SZ_V2	1024
++#define AR6003_BOARD_CHECKSUM_OFFSET	0x04
++#define AR6003_MAC_ADDRESS_OFFSET	0x16
+ 
+ #define AR6004_BOARD_DATA_SZ     6144
+ #define AR6004_BOARD_EXT_DATA_SZ 0

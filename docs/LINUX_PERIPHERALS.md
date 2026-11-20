@@ -1,10 +1,10 @@
 # Linux 側の周辺機能(reboot / USB / Wi-Fi / HDMI / GPIO / CEC)
 
-**状態**: カーネル変更は `linux-7.2/patches/0004`〜`0010`、ユーザーランドは `alpine/build.sh`・`alpine/boot.cmd`。実機で確認できたものは次のとおり。
+**状態**: カーネル変更は `linux-7.2/patches/0004`〜`0013`、ユーザーランドは `alpine/build.sh`・`alpine/boot.cmd`。実機で確認できたものは次のとおり。
 - HDMI(2026-11-20、DRM ドライバ): EDID を読み、1080p60 / 1080p50 / 720p60 / 480p / 1024x768 と、XRGB8888 / RGB565 のカラーバーが正しい色で出た。HDCP 認証は毎回 1〜2 回目で成功。
 - HDMI ホットプラグ: ケーブルの抜き差しとテレビの入力切り替えのどちらでも、画面が戻った(2026-11-01、旧実装。DRM ドライバは同じ処理)。
 - USB: 起動に使った USB メモリが `sda` として認識され、ext4 root で起動した。
-- Wi-Fi: ath6kl が AR6003 hw2.1.1 のファーム 3.2.0.144 を読み込み、`wpa_supplicant` + `udhcpc` で DHCP のアドレスを取得し、インターネットへの ping が通った。MAC は汎用 board data の `fc:4d:d4:70:1b:7f` で、純正の `wifiaddr` とは異なる。
+- Wi-Fi: ath6kl が AR6003 hw2.1.1 のファーム 3.2.0.144 を読み込み、`wpa_supplicant` + `udhcpc` で DHCP のアドレスを取得し、インターネットへの ping が通った。MAC は U-Boot env の `wifiaddr` になる(2026-11-20、パッチ 0011〜0013)。
   - `rfkill: Cannot open RFKILL control device` は、カーネルが RFKILL 無しでビルドされているため出るだけで、無害。
   - ping の遅延が 27〜322ms とばらついたが、`iw dev wlan0 set power_save off` で 20ms 台に安定した。そのため、カーネルの既定を省電力なしにした。
 - reboot(dw_wdt 経由)/ poweroff: `reboot` で再起動し、`poweroff` で停止した。
@@ -102,7 +102,8 @@ ext4 上では、`apk add` した物や設定が再起動後も残る。終了�
 | FIFO | 純正は FIFOTH = 0x20100010(しきい値 16 → 深さ 32)。dw_mmc はリセット値から深さを自動で読む | `mshci.c` `mshci_fifo_init()` |
 | チップ | **Atheros AR6003 hw2.1.1**。純正も compat-wireless の `ath6kl.ko` を使用 | skeleton `cavium/start_ath.sh`、`lib/firmware/ath6k/AR6003/hw2.1.1/` |
 | board data | `bdata_jp.bin` / `bdata_us.bin` / `bdata_gb.bin`(各 1792 byte)。U-Boot 環境変数 `country` で選ぶ(実機の値は JP) | skeleton `start_ath.sh`、`dump/spi.bin` の環境変数 |
-| MAC アドレス | U-Boot 環境変数 `wifiaddr`(実機 `C8:D3:A3:A9:45:8A`)。純正はファームに `softmac` ファイルで渡す | `start_ath.sh`、`dump/spi.bin` |
+| MAC アドレス | U-Boot 環境変数 `wifiaddr`(本体ごとに違う。`dump/` の本体は `C8:D3:A3:A9:45:8A`)。純正はファームに `softmac` ファイルで渡す | `start_ath.sh`、`dump/spi.bin` |
+| U-Boot env | SPI フラッシュ 0xC000、8KiB(先頭 4 byte が CRC32)。0x10000 からは miniloader と env の 2 つ目のコピー(env は初期値) | `dump/spi.bin` の CRC 照合 |
 
 ### 変更
 - DTS:
@@ -140,7 +141,12 @@ ping -c 3 1.1.1.1
   4. `ntpd -p pool.ntp.org`
 - **時刻**: DSM-232 には RTC が無く、起動直後の時計は 1970 年になる。このままだと `apk update` が「TLS: server certificate not trusted」で失敗するため、上の自動接続で NTP を合わせている。手動でやる場合は `ntpd -q -n -p pool.ntp.org`。
 - **省電力**: カーネルの `CFG80211_DEFAULT_PS` を無効にした。実機で `iw dev wlan0 set power_save off` を実行すると、ping が 27〜322ms のばらつきから 20ms 台に安定したため。純正も同じコマンドを実行していた。
-- MAC アドレスを純正と同じにする場合: U-Boot の `printenv wifiaddr` の値を使い、`ip link set wlan0 down; ip link set wlan0 address C8:D3:A3:A9:45:8A`。mainline の ath6kl には純正の `softmac` 相当が無い。
+- **MAC アドレス**(パッチ 0011〜0013): U-Boot env の `wifiaddr` を使う。
+  - AR6003 は board data 中の MAC(0x16)を使うが、OTP がモジュール固有の MAC(AzureWave の `40:2c:f4:…`)で上書きする。そのため board data ファイルを書き換えても効かない(実機で確認)。mainline の ath6kl は MAC の変更(`ip link set address`)にも対応していない。
+  - そこで ath6kl が OTP の実行後に、DT の `mac-address`(nvmem セル)をターゲット RAM 上の board data に書く。チェックサム(0x04、16bit ワードの XOR)は差分の XOR で保つ。
+  - DT: SPI の `u-boot-env` パーティションに `nvmem-layout { compatible = "u-boot,env"; }` を置き、SDIO 関数ノード `wifi@1` が `wifiaddr` セルを指す。パーティション自体に `compatible = "u-boot,env"` を付けると、MTD の nvmem と 2 つ重なってセルが見つからない(`-ENOENT`)。
+  - `wifiaddr` が無い・読めない場合は、モジュール固有の MAC のまま動く。
+  - MAC が変わると DHCP の IP も変わる。
 - 失敗時に見るもの:
   - `new ... SDIO card` が出ない(`mmc0: error -110` やタイムアウト): リセット GPIO・クロック・ピンマックスを疑う。`mount -t debugfs none /sys/kernel/debug; cat /sys/kernel/debug/gpio` と、dmesg の dw_mmc の行(`Version ID`、`FIFO depth`、`Using internal DMA controller`)を貼ってほしい。
   - ath6kl がファーム読み込みや BMI のエラーを出す: その行と `ls /lib/firmware/ath6k/AR6003/hw2.1.1/` を貼ってほしい。
@@ -293,9 +299,15 @@ kexec -e
 
 ## 9. 未対応
 - **HDMI 音声**: 音声ブロック(0xB1200000)は DSP で動き、PCM は DSP のファーム(GPL パッケージの `crisprelease/firmware/audio_fw_{text,data,ext_data}.bin`)経由で I2S に出る。ファームへの指示(メールボックス、ホスト IF 領域)はベンダーの `libcsaud.a`(バイナリ)にしか無く、解析が必要。送信部側(I2S 入力、N/CTS、Audio InfoFrame)は `SiITX.c` にある。音の出る機器での確認が必要なため保留。
-- **I2C**: ベンダー独自のブロック 2 つ(0x80170000 IRQ 2 / 0x80174000 IRQ 3、`cnc18xx_i2c.c`)。DSM-232 で何がつながっているかは不明。調べ方:
-  1. 純正 U-Boot に `i2c` コマンドがあれば `i2c dev 0; i2c probe`、`i2c dev 1; i2c probe`。
-  2. 無ければ、`cnc18xx_i2c.c` を元に i2c アダプタを書いて `i2cdetect -y 0`(i2c-tools はイメージに入っている)。
-  HDMI の DDC は送信部の中にあり、この I2C とは別。
+- **I2C**: ベンダー独自のブロック 2 つ(0x80170000 IRQ 2 / 0x80174000 IRQ 3、`cnc18xx_i2c.c`)。HDMI の DDC は送信部の中にあり、この I2C とは別。
+  - 純正 U-Boot の `i2c` は I2C0(0x80170000)だけを扱う。ピンマックス 0xB2110004 bit0 は U-Boot の時点で 1(I2C0 選択済み)。
+  - `i2c probe` は 00〜7F の全アドレスを「Valid」と出すが、当てにならない。純正の `i2c_probe()` は割り込み状態(+0x14)に何かのビットが立った最初の時点で、0x20(ACK なし)が無ければ成功とするため。
+  - `i2c md <addr> 0 1` を 0x03〜0x77 の全アドレスで実行すると、すべて「Error reading the chip」(2026-11-20)。純正の `i2c_read()` は失敗時に割り込み状態を消すかコントローラをリセットするので、後から理由は読めない。
+  - そこで `mw.w` で読み出しを組み立てた(`IC_DATA_CMD` +0x0C に `0x100|addr<<1`、`0x200|sub`、`0x101|addr<<1`、`0x600` を順に書き、`IC_RAW_INTR_STAT` +0x14 を読む)。アドレス 0x50 で:
+    - I2C0(0x80170000、GPIO 16/17): 0x40(純正の定義でアービトレーション負け)。
+    - I2C1(0x80174000、GPIO 0/1、ピンマックス 0xB2110004 bit1 を立て、SCLH/SCLL = 0x76): 0x41。
+    - どちらも ACK なし(0x20)ではなく、開始条件の時点で線が期待した電圧になっていない。プルアップが無い(配線されていない)ときの形。
+  - DSM-232 では I2C0・I2C1 とも何もつながっていない可能性が高い。ただし応答する既知のデバイスで手順を確かめてはいない。試験後、ピンマックスと I2C1 のレジスタは元の値に戻した。
+  - U-Boot の 1 行は 256 文字まで(`CONFIG_SYS_CBSIZE`)。全アドレスを試すときは `for a in 03 04 ...; do echo $a; i2c md $a 0 1; done` を 8 アドレスずつに分ける。
 - **SPI の DMA**(DW DMAC): 公開している SPI フラッシュは 128KiB の読み出し専用なので、利点が無く未対応。
 - **LAN**: DSM-232 に端子が無い。

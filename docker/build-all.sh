@@ -8,6 +8,8 @@ alpine/build.sh
 rm -rf out
 mkdir -p out/usb
 cp linux-7.2/uImage alpine/out/uInitrd alpine/out/boot.scr out/usb/
+# optional Wi-Fi settings (gitignored): dsm232-net copies them from the FAT side to /etc at boot
+[ ! -f alpine/wpa_supplicant.conf ] || cp alpine/wpa_supplicant.conf out/usb/
 cp alpine/out/rootfs.tar.gz out/
 # boot.cmd loads uImage at 0x4000000 and uInitrd at 0x5000000: each must stay below 16MB
 [ "$(stat -c %s out/usb/uImage)" -lt $((0x1000000)) ] || { echo "uImage over 16MB" >&2; exit 1; }

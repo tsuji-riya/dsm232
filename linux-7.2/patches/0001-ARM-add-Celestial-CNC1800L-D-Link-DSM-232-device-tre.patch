@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Tsuji Riya <tsuji.riya@gmail.com>
 Date: Fri, 20 Nov 2026 01:21:13 +0000
-Subject: [PATCH 01/10] ARM: add Celestial CNC1800L (D-Link DSM-232) device
+Subject: [PATCH 01/13] ARM: add Celestial CNC1800L (D-Link DSM-232) device
  tree support
 
 Add DT based support for the Celestial/Cavium CNC1800L set-top-box SoC

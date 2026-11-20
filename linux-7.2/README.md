@@ -1,6 +1,6 @@
 # Linux v7.2 for CNC1800L (D-Link DSM-232)
 
-`patches/0001`〜`0010` を順に Linux v7.2 (`v7.2` タグ) に適用する。ビルドは `./build.sh` (要 `gcc-arm-linux-gnueabi`, `u-boot-tools`, `bc flex bison libssl-dev`)。
+`patches/0001`〜`0013` を順に Linux v7.2 (`v7.2` タグ) に適用する。ビルドは `./build.sh` (要 `gcc-arm-linux-gnueabi`, `u-boot-tools`, `bc flex bison libssl-dev`)。
 
 ## 追加内容
 | パッチ | 内容 |
@@ -15,6 +15,9 @@
 | 0008 | SDIO(`snps,dw-mshc` 0x80290000 IRQ18)と AR6003 Wi-Fi(`ath6kl_sdio` + `mmc-pwrseq-simple` GPIO10) |
 | 0009 | HDMI(DRM `drivers/gpu/drm/tiny/cnc1800l.c`: EDID・モード切替・HDCP・ホットプラグ・CEC) |
 | 0010 | LED(GPIO2)、ボタン(GPIO9 = `KEY_PROG1`)、kexec |
+| 0011 | nvmem の U-Boot env レイアウトで `wifiaddr` も MAC アドレスとして読む |
+| 0012 | ath6kl: DT の MAC アドレス(nvmem セル可)を OTP 実行後の AR6003 board data に書く |
+| 0013 | SPI の U-Boot env(0xc000、8KiB)を nvmem レイアウトとして公開し、Wi-Fi の MAC に `wifiaddr` を使う |
 
 メモリは 0x0–0x08900000 のみ Linux に渡す。それより上はベンダーFWがFB/ビデオ/オーディオ/demux用に使う領域 (`mem_define.h` Tiga-Mini 計算値)。詳細は `docs/LINUX_PERIPHERALS.md`。
 

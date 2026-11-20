@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Tsuji Riya <tsuji.riya@gmail.com>
 Date: Fri, 20 Nov 2026 01:21:15 +0000
-Subject: [PATCH 10/10] ARM: dts: cnc1800l-dsm232: status LED and front button;
+Subject: [PATCH 10/13] ARM: dts: cnc1800l-dsm232: status LED and front button;
  enable kexec
 
 The vendor U-Boot turns the LED on with "gpio write 2 1"; the vendor

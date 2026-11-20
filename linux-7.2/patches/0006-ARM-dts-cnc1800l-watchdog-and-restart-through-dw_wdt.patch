@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Tsuji Riya <tsuji.riya@gmail.com>
 Date: Fri, 20 Nov 2026 01:21:14 +0000
-Subject: [PATCH 06/10] ARM: dts: cnc1800l: watchdog and restart through dw_wdt
+Subject: [PATCH 06/13] ARM: dts: cnc1800l: watchdog and restart through dw_wdt
 
 Reboot hung with "Reboot failed -- System halted": nothing could reset
 the SoC. The vendor watchdog driver (cnc18xx_wdt.c) accesses the

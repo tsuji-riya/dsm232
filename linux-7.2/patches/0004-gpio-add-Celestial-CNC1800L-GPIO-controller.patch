@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Tsuji Riya <tsuji.riya@gmail.com>
 Date: Fri, 20 Nov 2026 01:21:14 +0000
-Subject: [PATCH 04/10] gpio: add Celestial CNC1800L GPIO controller
+Subject: [PATCH 04/13] gpio: add Celestial CNC1800L GPIO controller
 
 The vendor GPIO block has 41 lines in two ports with an inverted
 direction register (1 = input) and level interrupts (mask, polarity and

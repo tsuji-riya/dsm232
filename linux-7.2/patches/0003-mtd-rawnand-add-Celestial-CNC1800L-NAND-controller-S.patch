@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Tsuji Riya <tsuji.riya@gmail.com>
 Date: Fri, 20 Nov 2026 01:21:14 +0000
-Subject: [PATCH 03/10] mtd: rawnand: add Celestial CNC1800L NAND controller,
+Subject: [PATCH 03/13] mtd: rawnand: add Celestial CNC1800L NAND controller,
  SPI and flash DT
 
 Add an exec_op based raw NAND driver for the CNC1800L controller. The
