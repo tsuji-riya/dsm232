@@ -29,8 +29,8 @@ miniloader and U-Boot environment, read-only.
  arch/arm/configs/cnc1800l_defconfig           |  12 +
  drivers/mtd/nand/raw/Kconfig                  |  10 +
  drivers/mtd/nand/raw/Makefile                 |   1 +
- drivers/mtd/nand/raw/cnc1800l_nand.c          | 330 ++++++++++++++++++
- 9 files changed, 557 insertions(+), 1 deletion(-)
+ drivers/mtd/nand/raw/cnc1800l_nand.c          | 336 ++++++++++++++++++
+ 9 files changed, 563 insertions(+), 1 deletion(-)
  create mode 100644 Documentation/devicetree/bindings/mtd/celestial,cnc1800l-nand.yaml
  create mode 100644 arch/arm/boot/dts/celestial/cnc1800l-dsm232-newecc.dts
  create mode 100644 drivers/mtd/nand/raw/cnc1800l_nand.c
@@ -340,10 +340,10 @@ index 619760138..7b50e3d65 100644
  obj-$(CONFIG_MTD_NAND_FSMC)		+= fsmc_nand.o
 diff --git a/drivers/mtd/nand/raw/cnc1800l_nand.c b/drivers/mtd/nand/raw/cnc1800l_nand.c
 new file mode 100644
-index 000000000..5a53c23b2
+index 000000000..94e90b0c7
 --- /dev/null
 +++ b/drivers/mtd/nand/raw/cnc1800l_nand.c
-@@ -0,0 +1,330 @@
+@@ -0,0 +1,336 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
 + * NAND controller driver for the Celestial (Cavium) CNC1800L SoC
@@ -363,7 +363,13 @@ index 000000000..5a53c23b2
 + *  - soft (nand-ecc-mode = "soft"): the generic MTD software ECC (Hamming
 + *    or BCH), which is NOT compatible with the vendor format.
 + *
-+ * Based on the vendor 2.6.32 driver by Xiaodong Fan and on davinci_nand.c.
++ * Based on the vendor 2.6.32 driver (cnc_nand.c, GPL-2.0):
++ *   Copyright (C) 2010 Celestial Semiconductor
++ *   Copyright (C) 2011 Cavium
++ *   Author: Xiaodong Fan <xiaodong.fan@caviumnetworks.com>
++ * and on davinci_nand.c:
++ *   Copyright (C) 2006 Texas Instruments
++ *   Copyright (C) 2008 Sander Huijsen, Troy Kisky, Dirk Behme
 + */
 +
 +#include <linux/io.h>

@@ -14,9 +14,8 @@ emulator; SYS_CTRL1 must keep HEN/VEN (0x37) and the DF graphics format
 AlphaIsValid for RGB565, or the TV gets no signal.
 
 The transmitter sends the blank colour instead of the picture unless
-HDCP encryption is on (the vendor sets it to black "when HDCP
-authentication not success"), so authenticate as the vendor
-SiITXHDCP.c siiTXHDCP_Authentication() does: BKSV over DDC, An and Aksv
+HDCP encryption is on, so do the HDCP 1.x authentication with the
+keys held in the transmitter: BKSV over DDC, An and Aksv
 to the receiver, R0 compared, then ENC_EN under AVMUTE; no repeater
 part 2. The receiver does not answer on DDC for a while after the link
 comes up, so this runs from a work every second, which also polls HPD
@@ -24,13 +23,16 @@ for hotplug (the HPD change interrupt bit is set again by the set-up
 itself) and compares Ri every 2s, since a TV switching inputs drops
 HDCP without an HPD change.
 
-The CEC controller (Silicon Image CPI at +0x1000 of the transmitter,
-vendor si_apiCpi.c) is a CEC adapter, polled every 20ms; its registers
-hang the bus with the CEC clock off.
+The CEC controller (Silicon Image CPI at +0x1000 of the transmitter) is
+a CEC adapter, polled every 20ms; its registers hang the bus with the
+CEC clock off.
 
 1080p60/50, 720p60, 480p, 1024x768, RGB565 and XRGB8888 show the right
 colour bars on hardware; CEC transmits but is not tested against a CEC
 sink.
+
+Register offsets and sequences come from the vendor GPL kernel sources
+and from a trace of the vendor hdmi.bin; no vendor code is reused.
 ---
  .../display/celestial,cnc1800l-display.yaml   |  67 ++
  .../boot/dts/celestial/cnc1800l-dsm232.dts    |   4 +
@@ -38,8 +40,8 @@ sink.
  arch/arm/configs/cnc1800l_defconfig           |   9 +
  drivers/gpu/drm/tiny/Kconfig                  |  12 +
  drivers/gpu/drm/tiny/Makefile                 |   1 +
- drivers/gpu/drm/tiny/cnc1800l.c               | 912 ++++++++++++++++++
- 7 files changed, 1018 insertions(+)
+ drivers/gpu/drm/tiny/cnc1800l.c               | 913 ++++++++++++++++++
+ 7 files changed, 1019 insertions(+)
  create mode 100644 Documentation/devicetree/bindings/display/celestial,cnc1800l-display.yaml
  create mode 100644 drivers/gpu/drm/tiny/cnc1800l.c
 
@@ -216,10 +218,10 @@ index 48d30bf61..e2a263c7e 100644
  obj-$(CONFIG_DRM_GM12U320)		+= gm12u320.o
 diff --git a/drivers/gpu/drm/tiny/cnc1800l.c b/drivers/gpu/drm/tiny/cnc1800l.c
 new file mode 100644
-index 000000000..518abf38d
+index 000000000..79b33b136
 --- /dev/null
 +++ b/drivers/gpu/drm/tiny/cnc1800l.c
-@@ -0,0 +1,912 @@
+@@ -0,0 +1,913 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
 + * Celestial (Cavium) CNC1800L display: output interface 0 and graphics
@@ -229,9 +231,10 @@ index 000000000..518abf38d
 + * The transmitter sends the blank colour instead of the picture unless
 + * HDCP 1.x encryption is on, so the driver authenticates (no repeater
 + * part 2) and keeps the link up from a work that runs every second; the
-+ * same work sees hotplug. Register use of the vendor df.c, SiITX*.c and
-+ * of the vendor hdmi.bin, recorded with tools/display_emu. The CEC
-+ * controller (Silicon Image CPI, si_apiCpi.c) is polled every 20ms.
++ * same work sees hotplug. Register offsets and programming sequences were
++ * worked out from the vendor firmware (its GPL kernel sources and a trace
++ * of its hdmi.bin in an emulator); no vendor code is reused. The CEC
++ * controller (Silicon Image CPI) is polled every 20ms.
 + */
 +
 +#include <linux/clk.h>
@@ -551,7 +554,7 @@ index 000000000..518abf38d
 +	tx_wr(p, AV_PB_CTRL2, 0x0c);
 +}
 +
-+/* SiITXHDCP.c siiTXHDCP_Authentication(), part 1; the transmitter holds the keys */
++/* HDCP 1.x authentication, first part; the transmitter holds the keys */
 +static int hdcp_auth(struct cnc_drm *p)
 +{
 +	u8 bksv[5], an[8], aksv[5], ri_rx[2], bcaps, ctrl;
@@ -687,7 +690,7 @@ index 000000000..518abf38d
 +	writel(val, p->hdmi + CEC_BASE + reg);
 +}
 +
-+/* si_apiCpi.c SI_CpiStatus() and SI_CpiRead() */
++/* ack the interrupt status, finish a transmit, drain the receive FIFO */
 +static void cnc_cec_work(struct work_struct *work)
 +{
 +	struct cnc_drm *p = container_of(to_delayed_work(work), struct cnc_drm, cec_work);
