@@ -1,7 +1,7 @@
-From 6ad27cd9a24447c1dfebf4cdf26a613986bf94d4 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Tsuji Riya <tsuji.riya@gmail.com>
-Date: Sat, 31 Oct 2026 20:29:27 +0000
-Subject: [PATCH 4/6] spi: dw: honour reg-io-width for all registers
+Date: Fri, 20 Nov 2026 01:21:13 +0000
+Subject: [PATCH 02/10] spi: dw: honour reg-io-width for all registers
 
 The binding describes reg-io-width as the I/O register width of the
 device, but only the data register used it; every other register was
@@ -82,6 +82,3 @@ index a9d055f9c..68f005a45 100644
  }
  
  static inline u32 dw_read_io_reg(struct dw_spi *dws, u32 offset)
--- 
-2.43.0
-

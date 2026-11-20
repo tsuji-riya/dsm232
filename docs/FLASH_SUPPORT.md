@@ -38,7 +38,7 @@ DT のプロパティは Linux と U-Boot で**同一**(U-Boot の rawnand コ�
 ## 3. 実装
 | 対象 | 追加物 |
 |---|---|
-| Linux 7.2 (`linux-7.2/patches/0002-*`, `0004-*`, `0005-*`) | `drivers/mtd/nand/raw/cnc1800l_nand.c`(`exec_op` 方式、旧=HW Hamming / 新=core の soft ECC)、DT バインディング `celestial,cnc1800l-nand`、`spi0`(`snps,dw-apb-ssi`, `reg-io-width=<2>`)+ `jedec,spi-nor`、NAND パーティション、`cnc1800l_defconfig` に MTD/NAND/SPI/BCH/UBI |
+| Linux 7.2 (`linux-7.2/patches/0002-*`, `0003-*`) | `drivers/mtd/nand/raw/cnc1800l_nand.c`(`exec_op` 方式、旧=HW Hamming / 新=core の soft ECC)、DT バインディング `celestial,cnc1800l-nand`、`spi0`(`snps,dw-apb-ssi`, `reg-io-width=<2>`)+ `jedec,spi-nor`、NAND パーティション、`cnc1800l_defconfig` に MTD/NAND/SPI/BCH/UBI |
 | U-Boot 2026.07 (`uboot-2026.07/patches/0002-*`) | `drivers/mtd/nand/raw/cnc1800l_nand.c`(DM・旧API の `cmd_ctrl` 方式)、`designware_spi` に `reg-io-width` 対応(16bit)、DT(spi/nand/clock)、`dsm232_defconfig` と `dsm232_newecc_defconfig`(`sf`/`nand`/`mtd` コマンド有効) |
 | 検証用 | `tools/ecc_compat/` |
 
@@ -47,5 +47,5 @@ U-Boot バイナリは旧/新とも約 347KB(`0x5FF00` = 389,888 の上限内。
 ## 4. 未検証・要確認
 - NAND の CE 制御は `CEn_CFG_0` bit9 を操作(Linux は常時アサート、U-Boot は純正と同様に操作ごと)。タイミングレジスタ(CEn_CFG_1/2)は設定していない(ミニローダー/ブート済み設定を前提)。
 - 実機の NAND 型番・ページサイズ・ID が標準 ID テーブルで認識されるか(純正は `nand_ids.c` を追加改変)。認識されない場合は ID 追加が必要。
-- Linux は当初 DR 以外を 32bit でアクセスしており、実機で FIFO 深さが 0 と検出されて `CS de-assertion on Tx` → spi-nor の probe が -5 で失敗した。`patches/0004-*` で `reg-io-width=<2>` のとき全レジスタを 16bit アクセスに修正(U-Boot 側は当初から 16bit)。修正後は転送できたが ID が `ff ff ...` だった → 純正 U-Boot は **mode 3**(CTRLR0=0xC7: SCPOL=SCPH=1)・BAUDR=8(約 11.8MHz)。mode 0 では DW SSI がフレーム間でネイティブ CS を解放するため、`patches/0006-*` で mode 3・12MHz 指定に合わせた。ピンマックス(0xB211000C=1)は純正 `board_init` が毎回設定済み。SPI は純正ダンプの 128KiB(miniloader + env)だけを read-only で公開。
+- Linux は当初 DR 以外を 32bit でアクセスしており、実機で FIFO 深さが 0 と検出されて `CS de-assertion on Tx` → spi-nor の probe が -5 で失敗した。`patches/0002-*` で `reg-io-width=<2>` のとき全レジスタを 16bit アクセスに修正(U-Boot 側は当初から 16bit)。修正後は転送できたが ID が `ff ff ...` だった → 純正 U-Boot は **mode 3**(CTRLR0=0xC7: SCPOL=SCPH=1)・BAUDR=8(約 11.8MHz)。mode 0 では DW SSI がフレーム間でネイティブ CS を解放するため、`patches/0003-*` で mode 3・12MHz 指定に合わせた。ピンマックス(0xB211000C=1)は純正 `board_init` が毎回設定済み。SPI は純正ダンプの 128KiB(miniloader + env)だけを read-only で公開。
 - SPI-NAND ではなく並列 NAND 前提。

@@ -1,0 +1,100 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tsuji Riya <tsuji.riya@gmail.com>
+Date: Fri, 20 Nov 2026 01:21:14 +0000
+Subject: [PATCH 07/10] ARM: dts: cnc1800l: add the USB host controllers
+
+Describe the EHCI (0x80200000, IRQ 22) and its OHCI companion
+(0x80210000, IRQ 27) for the generic platform drivers and enable USB
+mass storage, ext4 and vfat in the defconfig.
+
+The vendor glue (ehci-cnc18xx.c, ohci-cnc18xx.c) takes the USB reset
+(clock block 0x200 bit 4) out of reset and sets the PHY bypass (0x218
+bits 0-1), which the vendor U-Boot clears on "usb stop" before booting:
+these are the reset and the "usb" clock of the nodes. The EHCI address
+is the one of the vendor U-Boot, which boots from USB on this board;
+the vendor Linux glue uses the same block at +0x100.
+---
+ .../boot/dts/celestial/cnc1800l-dsm232.dts    |  8 ++++++
+ arch/arm/boot/dts/celestial/cnc1800l.dtsi     | 26 +++++++++++++++++++
+ arch/arm/configs/cnc1800l_defconfig           | 12 +++++++++
+ 3 files changed, 46 insertions(+)
+
+diff --git a/arch/arm/boot/dts/celestial/cnc1800l-dsm232.dts b/arch/arm/boot/dts/celestial/cnc1800l-dsm232.dts
+index e71afce30..d13d5fcce 100644
+--- a/arch/arm/boot/dts/celestial/cnc1800l-dsm232.dts
++++ b/arch/arm/boot/dts/celestial/cnc1800l-dsm232.dts
+@@ -29,6 +29,14 @@ memory@0 {
+ 	};
+ };
+ 
++&ehci {
++	status = "okay";
++};
++
++&ohci {
++	status = "okay";
++};
++
+ &uart0 {
+ 	status = "okay";
+ };
+diff --git a/arch/arm/boot/dts/celestial/cnc1800l.dtsi b/arch/arm/boot/dts/celestial/cnc1800l.dtsi
+index 848001248..2a74a0efb 100644
+--- a/arch/arm/boot/dts/celestial/cnc1800l.dtsi
++++ b/arch/arm/boot/dts/celestial/cnc1800l.dtsi
+@@ -137,6 +137,32 @@ nand: nand-controller@a4000000 {
+ 			status = "disabled";
+ 		};
+ 
++		/*
++		 * EHCI as in the vendor U-Boot (CONFIG_SYS_USB_EHCI_REGS_BASE);
++		 * the vendor Linux glue maps the same block at +0x100. Its OHCI
++		 * companion handles full/low speed devices. The vendor glue pulses
++		 * the USB reset and sets the PHY bypass ("usb" clock).
++		 */
++		ehci: usb@80200000 {
++			compatible = "generic-ehci";
++			reg = <0x80200000 0x1000>;
++			interrupt-parent = <&intc>;
++			interrupts = <22>;
++			clocks = <&clk CNC1800L_CLK_USB>;
++			resets = <&rst 4>;
++			status = "disabled";
++		};
++
++		ohci: usb@80210000 {
++			compatible = "generic-ohci";
++			reg = <0x80210000 0x1000>;
++			interrupt-parent = <&intc>;
++			interrupts = <27>;
++			clocks = <&clk CNC1800L_CLK_USB>;
++			resets = <&rst 4>;
++			status = "disabled";
++		};
++
+ 		/* the vendor cnc18xx_wdt.c uses 32 bit accesses, TOP 15 = ~40s at PCLK */
+ 		watchdog@801e1000 {
+ 			compatible = "snps,dw-wdt";
+diff --git a/arch/arm/configs/cnc1800l_defconfig b/arch/arm/configs/cnc1800l_defconfig
+index b17d3579b..20c5812de 100644
+--- a/arch/arm/configs/cnc1800l_defconfig
++++ b/arch/arm/configs/cnc1800l_defconfig
+@@ -37,6 +37,18 @@ CONFIG_SPI_DW_MMIO=y
+ CONFIG_MTD_UBI=y
+ CONFIG_UBIFS_FS=y
+ CONFIG_VFP=y
++CONFIG_SCSI=y
++CONFIG_BLK_DEV_SD=y
++CONFIG_USB=y
++CONFIG_USB_EHCI_HCD=y
++CONFIG_USB_EHCI_HCD_PLATFORM=y
++CONFIG_USB_OHCI_HCD=y
++CONFIG_USB_OHCI_HCD_PLATFORM=y
++CONFIG_USB_STORAGE=y
++CONFIG_EXT4_FS=y
++CONFIG_VFAT_FS=y
++CONFIG_NLS_CODEPAGE_437=y
++CONFIG_NLS_ISO8859_1=y
+ CONFIG_GPIOLIB=y
+ CONFIG_WATCHDOG=y
+ CONFIG_DW_WATCHDOG=y

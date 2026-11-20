@@ -5,3 +5,5 @@ linux-7.2/uImage
 linux-7.2/zImage-dtb
 __pycache__/
 alpine/bdata.bin
+alpine/authorized_keys
+alpine/wpa_supplicant.conf

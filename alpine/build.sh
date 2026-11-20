@@ -38,7 +38,9 @@ APKV=$(curl -fsSL "$MIRROR/$BRANCH/main/$HOSTARCH/APKINDEX.tar.gz" | tar -xzO AP
 mkdir -p apk && tar -xzif "apk-tools-static-$APKV-$HOSTARCH.apk" -C apk sbin/apk.static
 # keys and repositories: those under --root
 apk/sbin/apk.static --root rootfs --arch armhf --no-scripts --no-cache --usermode \
-	add wpa_supplicant iw wireless-regdb linux-firmware-ath6k
+	add wpa_supplicant iw wireless-regdb linux-firmware-ath6k \
+	dropbear dropbear-scp openssh-sftp-server kexec-tools \
+	i2c-tools devmem2
 # keep the firmware of the DSM-232 chip only (AR6003 hw2.1.1; zstd files, symlinks resolved)
 fw=rootfs/lib/firmware/ath6k
 cp -rL "$fw/AR6003/hw2.1.1" hw2.1.1 && rm -rf "$fw" && mkdir -p "$fw/AR6003" && mv hw2.1.1 "$fw/AR6003/"
@@ -55,9 +57,13 @@ mount -t devtmpfs devtmpfs /dev
 mkdir -p /dev/pts /dev/shm
 mount -t devpts devpts /dev/pts
 mount -t tmpfs tmpfs /run
-# root=/dev/sdXN on the kernel command line: switch to that file system (ext4 on the USB stick,
-# partition 2 of out/dsm232-usb.img); anything else (root=ram) stays in the initramfs
+# root=/dev/sdXN or root=LABEL=x on the kernel command line: switch to that file system (ext4 on the
+# USB stick, partition 2 of out/dsm232-usb.img); anything else (root=ram) stays in the initramfs
 for a in $(cat /proc/cmdline); do case $a in root=*) root=${a#root=} ;; esac; done
+if [ "${root#LABEL=}" != "${root:-}" ]; then
+	for i in $(seq 20); do dev=$(findfs "$root" 2>/dev/null) && break; echo "waiting for $root"; sleep 1; done
+	root=${dev:-$root}
+fi
 if [ "${root#/dev/}" != "${root:-}" ]; then
 	for i in $(seq 20); do [ -b "$root" ] && break; echo "waiting for $root"; sleep 1; done
 	mkdir -p /newroot
@@ -75,6 +81,7 @@ chmod 755 rootfs/init
 cat > rootfs/etc/inittab <<'EOF'
 ::sysinit:/bin/hostname -F /etc/hostname
 ::once:/usr/local/sbin/dsm232-net
+::respawn:/usr/sbin/dropbear -F -R -s
 tty1::respawn:/sbin/getty 38400 tty1 linux
 ttyS0::respawn:/sbin/getty -L 115200 ttyS0 vt100
 ::ctrlaltdel:/sbin/reboot
@@ -87,26 +94,46 @@ mkdir -p rootfs/usr/local/sbin
 cat > rootfs/usr/local/sbin/dsm232-net <<'EOF'
 #!/bin/sh
 conf=/etc/wpa_supplicant.conf
+# FAT boot partition (label DSM232; found by label, sdX depends on the other USB disks):
+# - delete cameo_factory/armed: this USB boot worked, so the vendor firmware may arm the next one
+#   (alpine/fwimg-app.sh)
+# - a wpa_supplicant.conf put there from a PC replaces the one in /etc
+for i in $(seq 20); do boot=$(findfs LABEL=DSM232 2>/dev/null) && break; sleep 1; done
+if [ -n "$boot" ] && mkdir -p /mnt/boot && mount "$boot" /mnt/boot 2>/dev/null; then
+	rm -f /mnt/boot/cameo_factory/armed
+	[ -f /mnt/boot/wpa_supplicant.conf ] && cp /mnt/boot/wpa_supplicant.conf "$conf" && chmod 600 "$conf"
+	umount /mnt/boot
+fi
 [ -f "$conf" ] || exit 0
 for i in $(seq 30); do [ -e /sys/class/net/wlan0 ] && break; sleep 1; done
 wpa_supplicant -B -i wlan0 -c "$conf" || exit 1
 udhcpc -i wlan0 -b
 ntpd -p pool.ntp.org
+# show the address for ssh on HDMI and UART
+for i in $(seq 60); do
+	ip=$(ip -4 -o addr show wlan0 | awk '{ sub("/.*", "", $4); print $4; exit }')
+	[ -n "$ip" ] && { echo "dsm232: ssh root@$ip" | tee /dev/tty1 > /dev/ttyS0; exit 0; }
+	sleep 1
+done
 EOF
 chmod 755 rootfs/usr/local/sbin/dsm232-net
-for f in bin/busybox sbin/getty bin/login bin/hostname etc/shadow; do
+for f in bin/busybox sbin/getty bin/login bin/hostname sbin/findfs etc/shadow; do
 	[ -e "rootfs/$f" ] || [ -L "rootfs/$f" ] || { echo "rootfs/$f missing in $FILE" >&2; exit 1; }
 done
-# shortcut: root has an empty password (no network login service is installed); set one with passwd, or edit here before release
+# shortcut: root has an empty password for the console; dropbear (-s) only takes keys, from alpine/authorized_keys
 sed -i 's/^root:[^:]*:/root::/' rootfs/etc/shadow
 grep -qx ttyS0 rootfs/etc/securetty 2>/dev/null || echo ttyS0 >> rootfs/etc/securetty
 grep -qx tty1 rootfs/etc/securetty || echo tty1 >> rootfs/etc/securetty
+mkdir -p rootfs/etc/dropbear
+if [ -f "$HERE/authorized_keys" ]; then
+	install -d -m 700 rootfs/root/.ssh
+	install -m 600 "$HERE/authorized_keys" rootfs/root/.ssh/authorized_keys
+fi
 
 (cd rootfs && find . | LC_ALL=C sort | cpio -o -H newc -R 0:0 --quiet) | gzip -9 > initramfs.cpio.gz
 # the same tree as a tarball, e.g. for a larger ext4 root (extract as root, see docs/LINUX_PERIPHERALS.md)
 tar -czf rootfs.tar.gz --numeric-owner --owner=0 --group=0 -C rootfs .
 mkimage -A arm -O linux -T ramdisk -C none -a 0 -e 0 -n "${FILE%.tar.gz} dsm232" -d initramfs.cpio.gz uInitrd
-python3 -I "$HERE/../tools/display_emu/avi_check.py" "$HERE/boot.cmd"
 mkimage -A arm -O linux -T script -C none -n "dsm232 usb boot" -d "$HERE/boot.cmd" boot.scr
 
 # boot.cmd loads uInitrd at 0x5000000 and boot.scr at 0x6000000: keep the ramdisk below 16MB

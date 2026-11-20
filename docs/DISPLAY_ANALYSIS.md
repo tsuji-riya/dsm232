@@ -35,7 +35,7 @@
 - DB3=0x80: **IT コンテンツ**(PC 画面として扱い、ノイズ除去・動き補間などの映像処理を止めるよう要求)
 - DB4: 実際の VIC(16 / 31 / 34)、DB5=0: グラフィックス、画素繰り返しなし
 
-チェックサムは `tools/display_emu/avi_check.py` が検証し、`alpine/build.sh` から毎回実行される。
+チェックサムは `tools/display_emu/avi_check.py` が検証していた(U-Boot 経路の削除とともに削除。今は DRM ドライバが AVI InfoFrame をモードから作る)。
 
 ### スクリプトの検証(純正 U-Boot のシェルで実行)
 純正 U-Boot 2011.06 の hush は、`$` を含む行を**変数展開後に空白で連結して再解析**する(`common/hush.c` の `child->sp` 処理)。そのため空の変数は引数ごと消え、`test -z "${x}"` は `test -z`(引数不足で偽)、`test "${x}" = 16` は `test = 16`(真)になる。最初の版の `boot.cmd` はこれで `hdmimode` が設定されず、`logo` の引数がずれて HDMI が起動しなかった(実機ログ `mode = 2, picture_color_mode = 101711872`)。比較は `x${var} = xVALUE` の形で書く。

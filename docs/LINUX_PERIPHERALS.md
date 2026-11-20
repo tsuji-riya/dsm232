@@ -1,18 +1,16 @@
-# Linux 側の reboot / USB / Wi-Fi / HDMI 初期化
+# Linux 側の周辺機能(reboot / USB / Wi-Fi / HDMI / GPIO / CEC)
 
-**状態**: 4 項目とも `./build-usb.sh` は通る。実機で確認できたものは次のとおり(2026-11-01)。
-- HDMI: `logo` を使わずに 1080p60 で tty1 が表示された(HDCP 認証は 2 回目で成功)。
-- USB: 起動に使った USB メモリが `sda` として認識された。
-- USB: `/dev/sda1` をマウントして中身が読めた。
-- Wi-Fi: ath6kl が AR6003 hw2.1.1 のファーム 3.2.0.144 を読み込み、`iw dev wlan0 scan` で周囲の AP が見えた。
-
-- HDMI ホットプラグ: ケーブルの抜き差しとテレビの入力切り替えのどちらでも、画面が戻った(再認証は 2 回目で成功)。
-- Wi-Fi 接続: `wpa_supplicant` + `udhcpc` で DHCP のアドレスを取得し、インターネットへの ping が通った。MAC は汎用 board data の `fc:4d:d4:70:1b:7f` で、純正の `wifiaddr` とは異なる。
+**状態**: カーネル変更は `linux-7.2/patches/0004`〜`0010`、ユーザーランドは `alpine/build.sh`・`alpine/boot.cmd`。実機で確認できたものは次のとおり。
+- HDMI(2026-11-20、DRM ドライバ): EDID を読み、1080p60 / 1080p50 / 720p60 / 480p / 1024x768 と、XRGB8888 / RGB565 のカラーバーが正しい色で出た。HDCP 認証は毎回 1〜2 回目で成功。
+- HDMI ホットプラグ: ケーブルの抜き差しとテレビの入力切り替えのどちらでも、画面が戻った(2026-11-01、旧実装。DRM ドライバは同じ処理)。
+- USB: 起動に使った USB メモリが `sda` として認識され、ext4 root で起動した。
+- Wi-Fi: ath6kl が AR6003 hw2.1.1 のファーム 3.2.0.144 を読み込み、`wpa_supplicant` + `udhcpc` で DHCP のアドレスを取得し、インターネットへの ping が通った。MAC は汎用 board data の `fc:4d:d4:70:1b:7f` で、純正の `wifiaddr` とは異なる。
   - `rfkill: Cannot open RFKILL control device` は、カーネルが RFKILL 無しでビルドされているため出るだけで、無害。
   - ping の遅延が 27〜322ms とばらついたが、`iw dev wlan0 set power_save off` で 20ms 台に安定した。そのため、カーネルの既定を省電力なしにした。
-- reboot / poweroff: `reboot` で再起動し、`poweroff` で停止した。
-
-USB 上の ext4 root(既定の rootfs)と、起動時の Wi-Fi 自動接続・NTP は**未検証**。カーネル変更は `linux-7.2/patches/0007`〜`0010`、ユーザーランドは `alpine/build.sh`・`alpine/boot.cmd`。
+- reboot(dw_wdt 経由)/ poweroff: `reboot` で再起動し、`poweroff` で停止した。
+- ボタン(GPIO 割り込み): 押すたびに `KEY_PROG1` の 1 / 0 が出た。LED は点灯。
+- SSH(dropbear)、起動時の Wi-Fi 自動接続と NTP。
+- CEC: 送信と「ACK なし」の検出は動く。CEC 対応のテレビが無く(PC モニターは CEC 非対応)、相手との通信は**未検証**。
 
 根拠の出典の略記:
 - **BSP** = 純正 Linux 2.6.32 BSP(`crisprelease/buildroot/linux/kernel-patch/linux-1800l-2-6-32.patch` を当てたツリー)
@@ -21,15 +19,16 @@ USB 上の ext4 root(既定の rootfs)と、起動時の Wi-Fi 自動接続・NT
 
 NAND / SPI には何も書かない。read-only の設定もそのまま。
 
-## 1. reboot / poweroff(パッチ 0007)
+## 1. reboot / poweroff(パッチ 0006)
 
 ### 根拠
 - BSP `arch/arm/mach-celestial/include/mach/system.h` の `arch_reset()`: 0x801E1000 の WDT に **16bit で** TORR(+0x04/+0x06)=0、CCVR(+0x08/+0x0A)=0、CR(+0x00)=1 を書く。`uboot-2026.07/patches/0001` の `reset_cpu` と同じ手順。
-- 電源断: BSP(`mach-celestial`、`drivers/celestial/peripheral`)と U-Boot パッチに `pm_power_off`・standby・電源 GPIO・PMIC 制御は**無い**。フロントパネル制御(FPC)も LED とボタン用。D-Link の `csgpio.c` も GPIO 2 = LED、GPIO 9 = WPS ボタンだけ。**ソフトウェアで電源を切る手段は無い**。
+- BSP `drivers/celestial/peripheral/cnc18xx_wdt.c`(`/dev/watchdog`)は同じ WDT を **32bit で**アクセスする(TORR、CRR = 0x76、CR = 0x1f)。
+- 電源断: BSP(`mach-celestial`、`drivers/celestial/peripheral`)と U-Boot パッチに `pm_power_off`・standby・電源 GPIO・PMIC 制御は**無い**。フロントパネル制御(FPC)も LED とボタン用。D-Link の `csgpio.c` も GPIO 2 = LED、GPIO 9 = ボタンだけ。**ソフトウェアで電源を切る手段は無い**。
 
 ### 変更
-- `arch/arm/mach-celestial/cnc1800l.c`: `.restart` に WDT リセットを実装(`.init_machine` で ioremap。restart は割り込み禁止で呼ばれるため、その場で ioremap しない)。setup_arch が `register_restart_handler` に登録する。
-- dw_wdt は使わない: 32bit アクセスになり、純正は 16bit で書いているため。
+- DTS: `snps,dw-wdt`(clocks = PCLK)。mainline の `dw_wdt` が `/dev/watchdog` と restart ハンドラを出す(machine のコードは無い)。
+- 32bit の読み出しは上位 16bit が 0 になる(COMP_VERSION が `0x322A`)。使うレジスタの値は 16bit に収まるので、残り時間の表示以外には影響しない。
 - poweroff: ハンドラが無いと reboot システムコールが POWER_OFF を HALT に読み替える(`kernel/reboot.c`)。そのため `poweroff` は「System halted」で停止する。**電源は切れない**ので、停止後に AC アダプタを抜く。
 
 ### 実機確認
@@ -38,7 +37,7 @@ NAND / SPI には何も書かない。read-only の設定もそのまま。
 | `reboot` | UART に `reboot: Restarting system` が出て、1 秒以内に純正 U-Boot のバナーが出る | `Reboot failed -- System halted` が出たら WDT が効いていない。U-Boot で `mw.w 0x801e1004 0; mw.w 0x801e1008 0; mw.w 0x801e1000 1` でリセットされるか確認 |
 | `poweroff` | `reboot: System halted` で止まる(電源 LED は点いたまま) | カーネル panic(`Attempted to kill init`)が出たら報告 |
 
-## 2. USB(パッチ 0008)
+## 2. USB(パッチ 0007)
 
 ### 根拠
 | 項目 | 値 | 出典 |
@@ -50,18 +49,18 @@ NAND / SPI には何も書かない。read-only の設定もそのまま。
 | U-Boot の後始末 | `usb stop`(bootm の前)で 0xB2100218 = 0 | U-Boot `ehci_hcd_stop()` |
 
 - **EHCI の先頭アドレスの食い違い**: BSP の Linux は `ioremap(0x80200000) + 0x100` を EHCI capability として使い、起動前に `+0x10` に `|= 3` を書く(`usb_hcd_cnc18xx_make_hc()`)。一方 U-Boot は 0x80200000 をそのまま capability として使い、実機で USB 起動できている。0x100 ごとにレジスタが折り返して見えるなら、`+0x110` は USBCMD(RUN|HCRESET)にあたり、標準のリセットと同じ意味になる(推測)。今回は**実績のある U-Boot の値**を使った。
-- PHY は bypass ビットを立てるだけで、専用の PHY ドライバは不要。そのため `generic-ehci` / `generic-ohci` で足りる。リセットとビット設定は machine の init(`cnc1800l.c`)で行う。
+- PHY は bypass ビットを立てるだけで、専用の PHY ドライバは不要。そのため `generic-ehci` / `generic-ohci` で足りる。リセットは reset-simple、bypass ビットはクロックドライバの `usb` クロックとして、DT からドライバに渡す。
 
 ### 変更
 - DTS: `generic-ehci` @0x80200000(IRQ 22)、`generic-ohci` @0x80210000(IRQ 27)。
-- `cnc1800l.c`: 上記のリセットパルスと 0x218 の設定。
+- DTS: `resets = <&rst 4>`(解除だけ。パルスはかけない。コントローラは自分でリセットする)、`clocks = <&clk CNC1800L_CLK_USB>`(0x218 bit0/1)。
 - defconfig: `USB_EHCI_HCD_PLATFORM`・`USB_OHCI_HCD_PLATFORM`・`USB_STORAGE`・`SCSI`・`BLK_DEV_SD`・`EXT4_FS`・`VFAT_FS`・NLS(cp437 / iso8859-1)。`linux-7.2/build.sh` の必須 CONFIG にも追加。
 
 ### 実機確認
 起動に使った USB メモリが、Linux からもそのまま見えるはず。
 ```
 dmesg | grep -i -e ehci -e ohci -e 'usb 1-' -e sda
-mount /dev/sda1 /mnt && ls /mnt     # uImage uInitrd boot.scr が見えれば成功
+mount /dev/sda1 /mnt && ls /mnt     # uImage uInitrd boot.scr cameo_factory が見えれば成功
 ```
 - 成功: `ehci-platform 80200000.usb: EHCI Host Controller`、`usb 1-1: new high-speed USB device`、`sd 0:0:0:0: [sda]` が出て、マウントできる。
 - 失敗時: 上の `dmesg` 全体と `cat /proc/interrupts` を貼ってほしい。
@@ -69,26 +68,26 @@ mount /dev/sda1 /mnt && ls /mnt     # uImage uInitrd boot.scr が見えれば成
   - `irq 22: nobody cared` は IRQ 番号の誤りを示す。
 
 ### USB 上の ext4 を rootfs にする(既定)
-`out/dsm232-usb.img` は 512MB で、次の 2 パーティションを持つ。**未検証**。
+`out/dsm232-usb.img` は 512MB で、次の 2 パーティションを持つ(実機の ext4 root で起動を確認)。
 - 1: FAT16 63MB(`uImage`・`uInitrd`・`boot.scr`)
 - 2: ext4 448MB(ラベル `dsm232root`)。中身は initramfs と同じ Alpine。ビルド時に `fakeroot` + `mke2fs -d` で、所有者 root のまま作る。
 
 起動の流れ:
-1. `boot.cmd` は既定で `root=/dev/sda2` を渡す。
-2. initramfs の `/init` が `/dev/sda2` を最大 20 秒待ち、マウントして `switch_root` する。
+1. `boot.cmd` は既定で `root=LABEL=dsm232root` を渡す(USB ハブ越しや複数の USB ディスクで `sdX` がずれても見つかるよう、ラベルで探す)。
+2. initramfs の `/init` が `findfs` でラベル `dsm232root` の ext4 を最大 20 秒待ち、マウントして `switch_root` する。
 3. 見つからない、またはマウントできない場合は、そのまま RAM 上の initramfs で起動する。
 
 ext4 上では、`apk add` した物や設定が再起動後も残る。終了時は inittab の `umount -a -r` で読み込み専用に戻すので、`reboot` / `poweroff` で止めること(電源を抜かない)。
 - RAM だけで動かしたいとき: U-Boot で `setenv rootdev ram`
 - 448MB より大きくしたいとき: PC 上で第 2 パーティションを広げて `resize2fs` する(例: GParted)。
-- 別のパーティションに入れる場合は、`out/rootfs.tar.gz` を root 権限で展開する: `sudo tar -xzpf out/rootfs.tar.gz -C /mnt`。そのうえで U-Boot で `setenv rootdev /dev/sdaN` とする。
+- 別のパーティションに入れる場合は、`out/rootfs.tar.gz` を root 権限で展開する: `sudo tar -xzpf out/rootfs.tar.gz -C /mnt`。そのうえで U-Boot で `setenv rootdev /dev/sdaN`(またはラベルで `setenv rootdev LABEL=名前`)とする。
 
 確認(成功の目安):
-- UART に `waiting for /dev/sda2` が数回出たあと、`login:` が出る。
-- `mount | grep ' / '` が `/dev/sda2 on / type ext4 (rw,...)` になる。
+- UART に `waiting for LABEL=dsm232root` が数回出たあと、`login:` が出る。
+- `mount | grep ' / '` が `/dev/sdX2 on / type ext4 (rw,...)` になる(USB ディスクが 1 台なら `sda2`)。
 - 適当なファイルを作って `reboot` し、残っていれば成功。
 
-## 3. Wi-Fi(パッチ 0009)
+## 3. Wi-Fi(パッチ 0008)
 
 ### 根拠
 | 項目 | 値 | 出典 |
@@ -107,11 +106,11 @@ ext4 上では、`apk add` した物や設定が再起動後も残る。終了�
 
 ### 変更
 - DTS:
-  - GPIO: `wd,mbl-gpio`(汎用 `gpio-mmio`。`dat`=+0x60、`set`=+0x20、`dirin`=+0x24 で逆極性の方向レジスタを表現。ポート A のみ)。
   - SDIO: `snps,dw-mshc`(biu/ciu = PCLK)。設定は 4bit、non-removable、cap-sdio-irq、cap-sd-highspeed、`max-frequency` 25MHz(**推測**)。
+  - SDIO のピン: `pinctrl-0 = <&sdio_pins>`(pinctrl-single、0xB2110024 bit0)。
   - Wi-Fi の電源: `mmc-pwrseq-simple`(`reset-gpios = <&gpio 10 GPIO_ACTIVE_LOW>`、`post-power-on-delay-ms` 100 は**推測**)。
-- `cnc1800l.c`: 純正 probe と同じ 0x140 / ピンマックスの設定。
-- defconfig: `NET`・`INET`・`UNIX`・`PACKET`・`CFG80211`・`NETDEVICES`・`ATH6KL_SDIO`・`MMC_DW_PLTFM`・`PWRSEQ_SIMPLE`・`GPIO_GENERIC_PLATFORM`(Ethernet ドライバ群は無効)。
+- 0x140 の全クロック有効は、クロックドライバの probe が行う(どのビットが SDIO 用かは不明)。
+- defconfig: `NET`・`INET`・`UNIX`・`PACKET`・`CFG80211`・`NETDEVICES`・`ATH6KL_SDIO`・`MMC_DW_PLTFM`・`PWRSEQ_SIMPLE`(Ethernet ドライバ群は無効)。
 - Alpine(`alpine/build.sh`): ビルドマシン用の `apk.static` で armhf の `wpa_supplicant`・`iw`・`wireless-regdb`・`linux-firmware-ath6k` を initramfs に入れる(署名はミニ rootfs の鍵で検証、armhf のスクリプトは実行しない)。ファームは AR6003/hw2.1.1 だけ残す(Alpine のファームは zstd 圧縮なので、カーネルに `FW_LOADER_COMPRESS_ZSTD` を入れた)。
 - board data:
   - 純正の `bdata_*.bin` には**ライセンス表記が無いため、リポジトリには入れない**。
@@ -146,7 +145,7 @@ ping -c 3 1.1.1.1
   - `new ... SDIO card` が出ない(`mmc0: error -110` やタイムアウト): リセット GPIO・クロック・ピンマックスを疑う。`mount -t debugfs none /sys/kernel/debug; cat /sys/kernel/debug/gpio` と、dmesg の dw_mmc の行(`Version ID`、`FIFO depth`、`Using internal DMA controller`)を貼ってほしい。
   - ath6kl がファーム読み込みや BMI のエラーを出す: その行と `ls /lib/firmware/ath6k/AR6003/hw2.1.1/` を貼ってほしい。
 
-## 4. HDMI を Linux 側で初期化(パッチ 0010)
+## 4. HDMI(DRM ドライバ、パッチ 0009)
 
 ### 根拠
 `logo 16 2 …` で純正 U-Boot が行う処理を、同じ順序と値で再現した。
@@ -186,31 +185,23 @@ HDMI TX(0x72 ページ = 0x80400000 + reg×4、AV ページ = 0x80400400 + reg×
 - 2 パス目の重複した書き込み
 
 ### 変更
-- `arch/arm/mach-celestial/cnc1800l-display.c`(新規): `init_machine` から呼ぶ。
-  1. 0x0C000000 の 1920×1080×2 byte を 0 クリア
-  2. クロック → DF → HDMI TX の順に設定
-  3. `cnc1800l-display: HDMI 1920x1080p60, RGB565 at 0xc000000` を出力
-- フレームバッファは従来どおり DTS の `simple-framebuffer` と fbcon を使う。DRM 化はしていない。
-- カーネル引数 `cnc1800l_display.skip=1` を付けると何もせず、U-Boot の設定を残す。
-- `alpine/boot.cmd`:
-  - **既定では `logo` を実行しない**(Linux が初期化する)。
-  - `setenv hdmi uboot` で従来の `logo` + AVI 修正 + `hdcpoff` の経路になり、`cnc1800l_display.skip=1` を渡す。`hdmimode` はこの経路だけで有効。
-  - 全プリセット(なし / `hdmi=uboot` / `+hdmimode=14,15,7` / `+hdcpoff=1` / `extraargs=...`)で、`tools/display_emu/run_script.py` によりコマンドと bootargs を確認済み。
-- `tools/display_emu/run_logo.py`: jump table 46 のラベルを `clock_hdmi_reset` に訂正。
+- `drivers/gpu/drm/tiny/cnc1800l.c`(新規): DF の出力 0 とグラフィックス層 1、HDMI 送信部を 1 つの DRM デバイスにする。`simple-framebuffer` と U-Boot の `logo` はもう使わない。
+  - 送信部の DDC マスタを I2C アダプタにして EDID を読み、モードを選ぶ。EDID が読めなければ 1920×1080 を既定にし、HDMI として扱う。
+  - 画素クロックはクロックドライバの表示 PLL。対応は 148.5MHz 以下のプログレッシブで、PLL の表で ±0.5% に入るもの。
+  - フォーマット: RGB565 / XRGB8888 / ARGB8888。fbdev(fbcon)は RGB565。メモリは CMA(16MB)。
+  - AVI InfoFrame はモードから `drm_hdmi_avi_infoframe_from_display_mode()` で作る(YCbCr 4:4:4、HD は BT.709 / SD は BT.601、アンダースキャン、IT コンテンツ)。DVI の受信側には RGB(DF の RGB→YUV 変換なし)で InfoFrame なし。
+  - HDCP 認証・Ri のリンク監視・HPD のポーリングは下の「黒画面の切り分け」のとおり。HPD の変化で DRM のホットプラグイベントを出す。
+- `alpine/boot.cmd` の U-Boot 経路(`setenv hdmi uboot`、`hdmimode`、`hdcpoff`)と `tools/display_emu/avi_check.py` は削除した。
 
 ### 実機確認
-1. 新しい `boot.scr` でそのまま起動する(`logo` は走らない)。
-   - 成功: UART に `cnc1800l-display: HDMI 1920x1080p60, RGB565 at 0xc000000` と `simple-framebuffer ... fb0` が出る。テレビに tty1 の `login:` が表示され、ちらつかない。テレビの入力情報が 1920×1080p / 60Hz。
-2. 比較用(U-Boot 経路): `setenv hdmi uboot; run bootcmd`
-3. 映らない、または色や同期がおかしい場合は、カーネル引数 `cnc1800l_display.dump=1` で表示関係のレジスタ(クロック 0xB2100100–0x21F、ピンマックス 0xB2110000–0x2F、DF 0xB1800000–0x9F と 0x300–0x35F、HDMI TX 2 ページ)を UART に出し、両方の経路で比べる(Alpine の busybox には `devmem` が無い)。
+1. 起動すると UART に `[drm] Initialized cnc1800l 1.0.0` と `fb0: cnc1800ldrmfb frame buffer device`、続いて `HDCP authenticated (try N)` が出て、tty1 の `login:` が映る。
+2. モードとフォーマット(`apk add libdrm-tests`):
    ```
-   setenv extraargs cnc1800l_display.dump=1
-   usb start; fatload usb 0:1 0x6000000 boot.scr; source 0x6000000
+   modetest -M cnc1800l -c                        # EDID のモード一覧(コネクタ 35、CRTC 38)
+   sleep 20 | modetest -M cnc1800l -s 35@38:1280x720-60@XR24
    ```
-   - Linux 経路: `before` = U-Boot プロンプト時点(`logo` 未実行)の実機の値、`after` = 初期化後。
-   - `setenv hdmi uboot` を足すと `before` が `logo` 実行後(映る状態)になる。
-   - `setenv hdmi uboot; setenv extraargs cnc1800l_display.dump=1 cnc1800l_display.skip=0` は、映っている状態の上から Linux の初期化をかける(後の `skip=0` が優先)。これで映像が消えるかどうかで、書いている値が悪いのか、足りない手順があるのかを切り分けられる。
-   - HDMI TX の 0x80400024(SYS_STAT): bit0 = 入力クロック安定、bit1 = HPD、bit2 = 受信側の終端検出(SiI の定義)。
+   カラーバーは左から白・黄・水色・緑・紫・赤・青。
+3. HDMI TX の 0x80400024(SYS_STAT): bit0 = 入力クロック安定、bit1 = HPD、bit2 = 受信側の終端検出(SiI の定義)。
 
 ### 実機ダンプでの修正(`cnc1800l_display.dump=1`)
 最初の版は「初期化は完了と表示されるが映らない」状態だった。`logo` 後(映る)と Linux 初期化後(映らない)のダンプを比べた結果、クロックと DF のタイミングは一致し、違いは次の 2 点だった。
@@ -240,15 +231,71 @@ SYS_CTRL1 を直した後、テレビは 1080p60 で同期するようになっ�
   - 2 秒おきに、受信側と送信部の Ri を照合する(テレビの入力切り替えのように HPD が変わらずに HDCP が切れる場合に備える)
   - 挿し直しや、2 回続けての Ri 不一致を検出したら、送信部のレジスタを設定し直し(リセットパルスはかけない)、HDCP を再認証する。
   - ログ: 抜くと `HDMI unplugged`、挿すと `HDMI plugged, setting up again` → `HDCP authenticated`。Ri が合わないと `HDMI link lost, setting up again`。実機で確認済み。
-- UART に `cnc1800l-display: HDCP authenticated (try N)` が出れば認証成功。`HDCP authentication failed (エラー番号)` の番号の意味は次のとおり。
-  - -19: HPD なし
+- `HDCP authenticated (try N)` が出れば認証成功。30 回失敗すると `HDCP still failing (エラー番号)` が出る。番号の意味は次のとおり。
   - -5: DDC 失敗
   - -6: 受信側の BKSV が不正(1 の数が 20 個でない)
   - -22: 送信部が BKSV エラーを返した
   - -13: R0 不一致
-- 原因の段階を特定するため、`cnc1800l_display.steps=<ビットマスク>` で一部の段階だけを実行できるようにした。bit0 = クロック、bit1 = DF、bit2 = HDMI ブロックのリセット、bit3 = HDMI TX のレジスタ、bit4 = HDCP 認証。既定は 0x1F(全段階)。
+- 原因の段階の特定には `cnc1800l_display.steps=<ビットマスク>`(bit0 = クロック、bit1 = DF、bit2 = HDMI ブロックのリセット、bit3 = HDMI TX のレジスタ、bit4 = HDCP 認証)を使った。解決後に削除した。
 
 ### 未確認・限界
 - エミュレータは未知のレジスタを 0 として読むため、read-modify-write の結果は「リセット値が 0」と仮定したものになっている。DF と HDMI の書き込みは、その結果の値をそのまま書いている。
-- HDMI のリセットパルスで HDMI TX のレジスタが初期値に戻る前提で、純正が書く値だけを書いている。
-- EDID・ホットプラグ・音声には対応していない。テレビを挿し直すと映像が止まる可能性がある。
+- TMDS PLL(72:80、72:83–85)は送信部のリセット値のまま。純正 `SiITX.c` `siiTX_TMDS_Setup()` は画素クロックの範囲ごとに書き換えるが、確認した 25〜148.5MHz の全モードで書き換えなしで映った。
+- 音声は未対応(下の 8)。
+- 垂直帰線割り込み(DF IRQ 7、0x10 bit3)は使っていない。ページフリップの完了は即時に通知する。
+
+## 5. GPIO・LED・ボタン(パッチ 0004、0010)
+
+### 根拠
+| 項目 | 値 | 出典 |
+|---|---|---|
+| GPIO ブロック | 0x80260000。ポート A(0–31): DR +0x20、DDR +0x24(**1 = 入力**)、入力値 +0x60。ポート B(32–40): +0x34 / +0x38 / +0x64 | BSP `cnc18xx_gpio.c` |
+| 割り込み | SoC IRQ 6。マスク +0x28 / +0x3C(1 = マスク)、極性 +0x2C / +0x40(1 = Low で割り込み)、状態 +0x68 / +0x6C。レベルのみ | 同 `cnc_gpio_irq_*()` |
+| LED | GPIO 2、1 = 点灯 | 純正 U-Boot 環境変数 `ledon=gpio write 2 1` |
+| ボタン | GPIO 9、押すと 0 | D-Link `csgpio.c` |
+
+### 変更
+- `drivers/gpio/gpio-cnc1800l.c`(新規): 41 本を 1 つの gpio_chip にする。エッジ割り込みは、エッジのたびに逆のレベルを待つように極性を切り替えて作る。`gpio-mmio` はポート B と割り込みを表せないため。
+- DTS: `gpio-leds`(LED、起動時に点灯)、`gpio-keys`(ボタン = `KEY_PROG1`)。
+
+### 実機確認
+```
+apk add evtest; evtest /dev/input/event0      # 押すと KEY_PROG1 value 1、離すと 0
+grep button /proc/interrupts
+```
+
+## 6. クロック・リセット・ピンマックス(パッチ 0005)
+- `drivers/clk/clk-cnc1800l.c`(新規): 表示 PLL(TVE PLL = 27MHz × (fb + 1) / m、設定は純正 `disp_pll_cfg[]` の 108 / 297 / 50.4 / 129.6 / 216MHz)と、表示・HDMI TMDS の分周(0x148 [11:8] / [15:12])、クロック有効ビット(0x140: 表示 bit4、TMDS bit6、音声 bit22、CEC bit26)、USB PHY bypass(0x218)。分周とゲートは汎用の clk-divider / clk-gate。番号は `include/dt-bindings/clock/celestial,cnc1800l-clk.h`。
+- 0x200 のリセット(0 = リセット)は mainline の reset-simple(`snps,dw-low-reset`)。USB = 4、表示 = 13、HDMI = 19(純正 `clock_*_reset()`)。
+- ピンマックス(0xB2110000、16bit レジスタ)は mainline の pinctrl-single。
+- machine のコード(`arch/arm/mach-celestial/*.c`)は無くなり、汎用の DT マシンで起動する。
+- 注意: CEC クロック(bit26)が止まっている間に 0x80401000 以降(CEC)を読むと、バスが止まって応答しなくなる。`devmem2` で触るときは先に CEC を有効にする(`cec-ctl --playback`)。
+
+## 7. CEC(パッチ 0009)
+- 送信部 +0x1000 の Silicon Image CPI(純正 `si_apiCpi.c`、レジスタは `si_cpi_regs.h` のバイトオフセットのまま)を、DRM ドライバが CEC アダプタ(`/dev/cec0`)として出す。20ms ごとにポーリングする。物理アドレスは EDID から取る。
+- 確認(`apk add v4l-utils`):
+  ```
+  cec-ctl --playback --osd-name DSM-232    # 論理アドレス 4 を取る
+  cec-ctl -S                               # トポロジ(テレビ = 0 が見えれば通信できている)
+  cec-ctl --to 0 --image-view-on           # テレビの電源を入れる
+  ```
+- 実機では論理アドレスを取り、送信は「Not Acknowledged」で終わった。つないだ PC モニターが CEC 非対応のためで、CEC 対応テレビでの確認は**未実施**。
+- CEC のビットタイミングを決める分周(0xB2100120 の下位 8bit)は U-Boot が設定した値(0xBB)のまま。
+
+## 8. 試験カーネルの起動(kexec)
+USB のカーネルを書き換えずに試す。起動しなかったら電源を入れ直せば USB 上のカーネルに戻る。
+```
+mount -o ro /dev/sda1 /mnt && dd if=/mnt/uInitrd of=/tmp/initrd bs=64 skip=1 && umount /mnt
+kexec -l /tmp/zImage --dtb=/tmp/cnc1800l-dsm232.dtb --initrd=/tmp/initrd --command-line="$(cat /proc/cmdline) panic=10"
+kexec -e
+```
+`root=LABEL=` は initramfs の `/init` が解決するので、`--initrd` を省くと root をマウントできずに panic する。
+
+## 9. 未対応
+- **HDMI 音声**: 音声ブロック(0xB1200000)は DSP で動き、PCM は DSP のファーム(GPL パッケージの `crisprelease/firmware/audio_fw_{text,data,ext_data}.bin`)経由で I2S に出る。ファームへの指示(メールボックス、ホスト IF 領域)はベンダーの `libcsaud.a`(バイナリ)にしか無く、解析が必要。送信部側(I2S 入力、N/CTS、Audio InfoFrame)は `SiITX.c` にある。音の出る機器での確認が必要なため保留。
+- **I2C**: ベンダー独自のブロック 2 つ(0x80170000 IRQ 2 / 0x80174000 IRQ 3、`cnc18xx_i2c.c`)。DSM-232 で何がつながっているかは不明。調べ方:
+  1. 純正 U-Boot に `i2c` コマンドがあれば `i2c dev 0; i2c probe`、`i2c dev 1; i2c probe`。
+  2. 無ければ、`cnc18xx_i2c.c` を元に i2c アダプタを書いて `i2cdetect -y 0`(i2c-tools はイメージに入っている)。
+  HDMI の DDC は送信部の中にあり、この I2C とは別。
+- **SPI の DMA**(DW DMAC): 公開している SPI フラッシュは 128KiB の読み出し専用なので、利点が無く未対応。
+- **LAN**: DSM-232 に端子が無い。

@@ -1,30 +1,36 @@
-From 1da645da4820e22d4151678e880221d47b01f06a Mon Sep 17 00:00:00 2001
-From: tsuji-riya <tsuji.riya@gmail.com>
-Date: Mon, 12 Oct 2026 01:04:35 +0000
-Subject: [PATCH 2/6] mtd: rawnand: add Celestial CNC1800L NAND controller, SPI
- and flash DT
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tsuji Riya <tsuji.riya@gmail.com>
+Date: Fri, 20 Nov 2026 01:21:14 +0000
+Subject: [PATCH 03/10] mtd: rawnand: add Celestial CNC1800L NAND controller,
+ SPI and flash DT
 
 Add an exec_op based raw NAND driver for the CNC1800L controller. The
-ECC scheme follows the standard NAND properties: the default is the SoC
-1-bit Hamming engine in the vendor on-flash format (3 bytes per 512
-bytes), generic soft ECC (Hamming/BCH) can be selected from the device
-tree. Describe the Designware SSI SPI controller (16 bit register
-accesses) with a spi-nor flash, add NAND partitions and a second DTS
-using software BCH.
+ECC scheme follows the standard NAND properties of the chip node: the
+default is the SoC 1-bit Hamming engine in the vendor on-flash format
+(3 bytes per 512 bytes), which the generic software Hamming cannot
+decode; generic soft ECC (Hamming/BCH) can be selected from the device
+tree.
 
-Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
-Claude-Session: https://claude.ai/code/session_01K1YEf8BfFQRcvUTgm7e5vZ
+The DSM-232 DTS describes the Toshiba TC58NVG0S3E (128MiB) with the
+layout of the vendor firmware, all read-only, and scans the factory bad
+block markers instead of using an on-flash BBT. A second DTS uses
+software BCH-4 over the whole, reformatted chip.
+
+Describe the DesignWare SSI (16 bit register accesses) with a spi-nor
+flash in mode 3 at about 12MHz as the vendor U-Boot does (in mode 0 the
+native chip select is released between frames), exposing only the
+miniloader and U-Boot environment, read-only.
 ---
  .../bindings/mtd/celestial,cnc1800l-nand.yaml |  49 +++
  arch/arm/boot/dts/celestial/Makefile          |   2 +-
- .../dts/celestial/cnc1800l-dsm232-newecc.dts  |  23 ++
- .../boot/dts/celestial/cnc1800l-dsm232.dts    |  51 +++
+ .../dts/celestial/cnc1800l-dsm232-newecc.dts  |  26 ++
+ .../boot/dts/celestial/cnc1800l-dsm232.dts    |  96 +++++
  arch/arm/boot/dts/celestial/cnc1800l.dtsi     |  32 ++
  arch/arm/configs/cnc1800l_defconfig           |  12 +
  drivers/mtd/nand/raw/Kconfig                  |  10 +
  drivers/mtd/nand/raw/Makefile                 |   1 +
- drivers/mtd/nand/raw/cnc1800l_nand.c          | 340 ++++++++++++++++++
- 9 files changed, 519 insertions(+), 1 deletion(-)
+ drivers/mtd/nand/raw/cnc1800l_nand.c          | 330 ++++++++++++++++++
+ 9 files changed, 557 insertions(+), 1 deletion(-)
  create mode 100644 Documentation/devicetree/bindings/mtd/celestial,cnc1800l-nand.yaml
  create mode 100644 arch/arm/boot/dts/celestial/cnc1800l-dsm232-newecc.dts
  create mode 100644 drivers/mtd/nand/raw/cnc1800l_nand.c
@@ -94,10 +100,10 @@ index 2b7b05486..e5753ae5c 100644
 +dtb-$(CONFIG_ARCH_CELESTIAL) += cnc1800l-dsm232.dtb cnc1800l-dsm232-newecc.dtb
 diff --git a/arch/arm/boot/dts/celestial/cnc1800l-dsm232-newecc.dts b/arch/arm/boot/dts/celestial/cnc1800l-dsm232-newecc.dts
 new file mode 100644
-index 000000000..0feb986f9
+index 000000000..809597c6e
 --- /dev/null
 +++ b/arch/arm/boot/dts/celestial/cnc1800l-dsm232-newecc.dts
-@@ -0,0 +1,23 @@
+@@ -0,0 +1,26 @@
 +// SPDX-License-Identifier: GPL-2.0-only OR MIT
 +/*
 + * DSM-232 with the generic (software BCH) NAND ECC instead of the SoC
@@ -119,25 +125,51 @@ index 000000000..0feb986f9
 +		nand-ecc-algo = "bch";
 +		nand-ecc-strength = <4>;
 +		nand-ecc-step-size = <512>;
++		/* the whole chip is reformatted: one writable device, BBT on flash */
++		nand-on-flash-bbt;
++		/delete-node/ partitions;
 +	};
 +};
 diff --git a/arch/arm/boot/dts/celestial/cnc1800l-dsm232.dts b/arch/arm/boot/dts/celestial/cnc1800l-dsm232.dts
-index 3e6c2206d..582769993 100644
+index 90b89061a..e71afce30 100644
 --- a/arch/arm/boot/dts/celestial/cnc1800l-dsm232.dts
 +++ b/arch/arm/boot/dts/celestial/cnc1800l-dsm232.dts
-@@ -27,3 +27,54 @@ memory@0 {
- &uart0 {
+@@ -33,3 +33,99 @@ &uart0 {
  	status = "okay";
  };
-+
+ 
 +&spi0 {
 +	status = "okay";
 +
 +	flash@0 {
 +		compatible = "jedec,spi-nor";
 +		reg = <0>;
-+		spi-max-frequency = <40000000>;
++		/*
++		 * Same as the vendor U-Boot (CTRLR0 = 0xc7, BAUDR = 8): mode 3,
++		 * 94.5MHz / 8. In mode 0 the native chip select is released
++		 * between frames and the flash only answers 0xff.
++		 */
++		spi-cpol;
++		spi-cpha;
++		spi-max-frequency = <12000000>;
 +		m25p,fast-read;
++
++		partitions {
++			compatible = "fixed-partitions";
++			#address-cells = <1>;
++			#size-cells = <1>;
++
++			/*
++			 * Miniloader + U-Boot env (0xc000) and a second copy at
++			 * 0x10000, as dumped. Boot-critical: read-only, and only
++			 * this range is exposed.
++			 */
++			partition@0 {
++				label = "miniloader";
++				reg = <0x00000000 0x00020000>;
++				read-only;
++			};
++		};
 +	};
 +};
 +
@@ -146,13 +178,16 @@ index 3e6c2206d..582769993 100644
 +
 +	nand@0 {
 +		reg = <0>;
-+		nand-on-flash-bbt;
 +
 +		/*
 +		 * LEGACY ECC (default): SoC 1-bit Hamming / 512 bytes, the
 +		 * vendor on-flash format. Required for every partition that
 +		 * the miniloader / vendor boot loaders read, and keeps
 +		 * existing flash contents readable.
++		 *
++		 * No nand-on-flash-bbt: if Linux did not recognise the vendor
++		 * table it would write a new one over the last blocks. Bad
++		 * blocks are found by scanning the factory markers instead.
 +		 */
 +
 +		partitions {
@@ -160,22 +195,41 @@ index 3e6c2206d..582769993 100644
 +			#address-cells = <1>;
 +			#size-cells = <1>;
 +
-+			/* layout from the vendor bootargs of the DSM-232 */
++			/*
++			 * Toshiba TC58NVG0S3E, 128MiB. Layout measured on a
++			 * dump of the vendor firmware and its U-Boot env
++			 * (show_logo, FACT_IMG, IMG/WORK_IMG, IMG_SIZE).
++			 * Read-only so that the vendor firmware stays bootable.
++			 */
 +			partition@0 {
-+				label = "kernel";
-+				reg = <0x00000000 0x00300000>;
++				label = "bootloader";	/* U-Boot at 0x20000 and 0xa0000 */
++				reg = <0x00000000 0x00200000>;
++				read-only;
 +			};
-+			partition@300000 {
-+				label = "fs";
-+				reg = <0x00300000 0x1f800000>;
++			partition@200000 {
++				label = "splash";
++				reg = <0x00200000 0x00200000>;
++				read-only;
 +			};
-+			partition@1fb00000 {
-+				label = "kernel_update";
-+				reg = <0x1fb00000 0x00300000>;
++			partition@400000 {
++				label = "factory";
++				reg = <0x00400000 0x02000000>;
++				read-only;
 +			};
-+			partition@1fe00000 {
-+				label = "bad_blks_table";
-+				reg = <0x1fe00000 0x00200000>;
++			partition@2400000 {
++				label = "firmware";
++				reg = <0x02400000 0x02000000>;
++				read-only;
++			};
++			partition@4400000 {
++				label = "data";		/* JFFS2 */
++				reg = <0x04400000 0x03b80000>;
++				read-only;
++			};
++			partition@7f80000 {
++				label = "bbt";
++				reg = <0x07f80000 0x00080000>;
++				read-only;
 +			};
 +		};
 +	};
@@ -231,10 +285,10 @@ index bb40cb96a..7a99f7eb6 100644
  			compatible = "snps,dw-apb-uart";
  			reg = <0x801f1000 0x100>;
 diff --git a/arch/arm/configs/cnc1800l_defconfig b/arch/arm/configs/cnc1800l_defconfig
-index b69b933e6..eb1175a75 100644
+index c96429636..f76daf8dc 100644
 --- a/arch/arm/configs/cnc1800l_defconfig
 +++ b/arch/arm/configs/cnc1800l_defconfig
-@@ -24,3 +24,15 @@ CONFIG_SERIAL_8250_DW=y
+@@ -24,4 +24,16 @@ CONFIG_SERIAL_8250_DW=y
  CONFIG_TMPFS=y
  CONFIG_PROC_FS=y
  CONFIG_SYSFS=y
@@ -250,6 +304,7 @@ index b69b933e6..eb1175a75 100644
 +CONFIG_SPI_DW_MMIO=y
 +CONFIG_MTD_UBI=y
 +CONFIG_UBIFS_FS=y
+ CONFIG_VFP=y
 diff --git a/drivers/mtd/nand/raw/Kconfig b/drivers/mtd/nand/raw/Kconfig
 index 1f4053e53..82f754942 100644
 --- a/drivers/mtd/nand/raw/Kconfig
@@ -285,10 +340,10 @@ index 619760138..7b50e3d65 100644
  obj-$(CONFIG_MTD_NAND_FSMC)		+= fsmc_nand.o
 diff --git a/drivers/mtd/nand/raw/cnc1800l_nand.c b/drivers/mtd/nand/raw/cnc1800l_nand.c
 new file mode 100644
-index 000000000..ea6d9264a
+index 000000000..5a53c23b2
 --- /dev/null
 +++ b/drivers/mtd/nand/raw/cnc1800l_nand.c
-@@ -0,0 +1,340 @@
+@@ -0,0 +1,330 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
 + * NAND controller driver for the Celestial (Cavium) CNC1800L SoC
@@ -305,9 +360,8 @@ index 000000000..ea6d9264a
 + *    code per 512 byte step. The on-flash format is the one used by the
 + *    vendor firmware and boot loaders, so existing NAND contents and the
 + *    miniloader keep working.
-+ *  - soft ("nand-ecc-mode = "soft"" or "nand-ecc-engine" absent with
-+ *    "nand-ecc-algo"): the generic MTD software ECC (Hamming or BCH),
-+ *    which is NOT compatible with the vendor format.
++ *  - soft (nand-ecc-mode = "soft"): the generic MTD software ECC (Hamming
++ *    or BCH), which is NOT compatible with the vendor format.
 + *
 + * Based on the vendor 2.6.32 driver by Xiaodong Fan and on davinci_nand.c.
 + */
@@ -319,8 +373,8 @@ index 000000000..ea6d9264a
 +#include <linux/mtd/mtd.h>
 +#include <linux/mtd/partitions.h>
 +#include <linux/mtd/rawnand.h>
++#include <linux/of.h>
 +#include <linux/platform_device.h>
-+#include <linux/slab.h>
 +
 +#define CNC_CE_CFG0(cs)		((cs) * 0x0c)
 +#define CNC_CE_FORCE_LOW	BIT(9)
@@ -468,18 +522,6 @@ index 000000000..ea6d9264a
 +	nand->ce_forced |= BIT(cs);
 +}
 +
-+static void cnc_nand_data_in(struct cnc_nand *nand, void *buf,
-+			     unsigned int len)
-+{
-+	ioread8_rep(nand->current_cs, buf, len);
-+}
-+
-+static void cnc_nand_data_out(struct cnc_nand *nand, const void *buf,
-+			      unsigned int len)
-+{
-+	iowrite8_rep(nand->current_cs, buf, len);
-+}
-+
 +static int cnc_nand_exec_instr(struct cnc_nand *nand,
 +			       const struct nand_op_instr *instr)
 +{
@@ -497,12 +539,12 @@ index 000000000..ea6d9264a
 +				 nand->current_cs + CNC_MASK_ALE);
 +		break;
 +	case NAND_OP_DATA_IN_INSTR:
-+		cnc_nand_data_in(nand, instr->ctx.data.buf.in,
-+				 instr->ctx.data.len);
++		ioread8_rep(nand->current_cs, instr->ctx.data.buf.in,
++			    instr->ctx.data.len);
 +		break;
 +	case NAND_OP_DATA_OUT_INSTR:
-+		cnc_nand_data_out(nand, instr->ctx.data.buf.out,
-+				  instr->ctx.data.len);
++		iowrite8_rep(nand->current_cs, instr->ctx.data.buf.out,
++			     instr->ctx.data.len);
 +		break;
 +	case NAND_OP_WAITRDY_INSTR:
 +		ret = readl_relaxed_poll_timeout(nand->base + CNC_STATUS, status,
@@ -559,6 +601,7 @@ index 000000000..ea6d9264a
 +	struct resource *res;
 +	struct cnc_nand *nand;
 +	struct mtd_info *mtd;
++	struct device_node *np;
 +	int ret;
 +
 +	nand = devm_kzalloc(dev, sizeof(*nand), GFP_KERNEL);
@@ -575,14 +618,16 @@ index 000000000..ea6d9264a
 +	if (IS_ERR(nand->base))
 +		return PTR_ERR(nand->base);
 +
-+	nand->current_cs = nand->vaddr;
-+	nand->current_paddr = nand->paddr;
-+
 +	nand_controller_init(&nand->controller);
 +	nand->controller.ops = &cnc_nand_ops;
 +
++	/* the chip node (nand@0) carries nand-ecc-*, nand-on-flash-bbt and partitions */
++	np = of_get_next_available_child(dev->of_node, NULL);
++	if (!np)
++		return dev_err_probe(dev, -ENODEV, "no NAND chip node\n");
++
 +	nand->chip.controller = &nand->controller;
-+	nand_set_flash_node(&nand->chip, dev->of_node);
++	nand_set_flash_node(&nand->chip, np);
 +
 +	mtd = nand_to_mtd(&nand->chip);
 +	mtd->dev.parent = dev;
@@ -629,6 +674,3 @@ index 000000000..ea6d9264a
 +
 +MODULE_LICENSE("GPL");
 +MODULE_DESCRIPTION("Celestial CNC1800L NAND controller driver");
--- 
-2.43.0
-

@@ -1,0 +1,127 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tsuji Riya <tsuji.riya@gmail.com>
+Date: Fri, 20 Nov 2026 01:21:15 +0000
+Subject: [PATCH 08/10] ARM: dts: cnc1800l: add SDIO and the AR6003 Wi-Fi of
+ the DSM-232
+
+The SDIO host ("MSHCI" in the vendor BSP, 0x80290000, IRQ 18) is a
+DesignWare mobile storage host clocked from PCLK (47.25MHz), with the
+SDIO pins selected in the pin mux (0xb2110024 bit 0).
+
+The Atheros AR6003 (hw2.1.1, as in the vendor ath6kl firmware tree) is
+held in reset by GPIO 10: use mmc-pwrseq-simple for the reset line and
+ath6kl_sdio for the chip.
+
+Wi-Fi power save is off by default: with it, ping times on hardware
+varied between 27 and 322ms, without it they stay around 20ms (the
+vendor also turned it off).
+---
+ .../boot/dts/celestial/cnc1800l-dsm232.dts    | 21 +++++++++++++++++++
+ arch/arm/boot/dts/celestial/cnc1800l.dtsi     | 19 +++++++++++++++++
+ arch/arm/configs/cnc1800l_defconfig           | 16 ++++++++++++++
+ 3 files changed, 56 insertions(+)
+
+diff --git a/arch/arm/boot/dts/celestial/cnc1800l-dsm232.dts b/arch/arm/boot/dts/celestial/cnc1800l-dsm232.dts
+index d13d5fcce..a0ed87773 100644
+--- a/arch/arm/boot/dts/celestial/cnc1800l-dsm232.dts
++++ b/arch/arm/boot/dts/celestial/cnc1800l-dsm232.dts
+@@ -1,6 +1,7 @@
+ // SPDX-License-Identifier: GPL-2.0-only OR MIT
+ /dts-v1/;
+ 
++#include <dt-bindings/gpio/gpio.h>
+ #include "cnc1800l.dtsi"
+ 
+ / {
+@@ -17,6 +18,16 @@ chosen {
+ 		stdout-path = "serial0:115200n8";
+ 	};
+ 
++	/*
++	 * AR6003 (SDIO Wi-Fi) reset: GPIO 10, driven high by the vendor
++	 * mshci-cnc1800l.c on Tiga Mini boards before the host is probed.
++	 */
++	wifi_pwrseq: wifi-pwrseq {
++		compatible = "mmc-pwrseq-simple";
++		reset-gpios = <&gpio 10 GPIO_ACTIVE_LOW>;
++		post-power-on-delay-ms = <100>;	/* guess (推測) */
++	};
++
+ 	/*
+ 	 * The vendor firmware reserves the top of the 256MB DRAM for the
+ 	 * framebuffer, video/audio buffers, ethernet, crypto and demux
+@@ -37,6 +48,16 @@ &ohci {
+ 	status = "okay";
+ };
+ 
++&mmc {
++	status = "okay";
++	bus-width = <4>;
++	non-removable;
++	cap-sdio-irq;
++	cap-sd-highspeed;
++	max-frequency = <25000000>;	/* guess (推測): SDIO high speed limit */
++	mmc-pwrseq = <&wifi_pwrseq>;
++};
++
+ &uart0 {
+ 	status = "okay";
+ };
+diff --git a/arch/arm/boot/dts/celestial/cnc1800l.dtsi b/arch/arm/boot/dts/celestial/cnc1800l.dtsi
+index 2a74a0efb..0030b2764 100644
+--- a/arch/arm/boot/dts/celestial/cnc1800l.dtsi
++++ b/arch/arm/boot/dts/celestial/cnc1800l.dtsi
+@@ -181,6 +181,25 @@ gpio: gpio@80260000 {
+ 			#interrupt-cells = <2>;
+ 		};
+ 
++		/*
++		 * "MSHCI" of the vendor BSP (mshci-cnc1800l.c): a DesignWare
++		 * mobile storage host. Its card clock source is fixed at
++		 * 47.25MHz (mshci_cnc1800l_get_max_clk()), i.e. PCLK.
++		 */
++		mmc: mmc@80290000 {
++			compatible = "snps,dw-mshc";
++			reg = <0x80290000 0x1000>;
++			interrupt-parent = <&intc>;
++			interrupts = <18>;
++			clocks = <&pclk>, <&pclk>;
++			clock-names = "biu", "ciu";
++			pinctrl-names = "default";
++			pinctrl-0 = <&sdio_pins>;
++			#address-cells = <1>;
++			#size-cells = <0>;
++			status = "disabled";
++		};
++
+ 		uart0: serial@801f1000 {
+ 			compatible = "snps,dw-apb-uart";
+ 			reg = <0x801f1000 0x100>;
+diff --git a/arch/arm/configs/cnc1800l_defconfig b/arch/arm/configs/cnc1800l_defconfig
+index 20c5812de..0a5c15d76 100644
+--- a/arch/arm/configs/cnc1800l_defconfig
++++ b/arch/arm/configs/cnc1800l_defconfig
+@@ -49,7 +49,23 @@ CONFIG_EXT4_FS=y
+ CONFIG_VFAT_FS=y
+ CONFIG_NLS_CODEPAGE_437=y
+ CONFIG_NLS_ISO8859_1=y
++CONFIG_NET=y
++CONFIG_PACKET=y
++CONFIG_UNIX=y
++CONFIG_INET=y
++CONFIG_CFG80211=y
++# CONFIG_CFG80211_DEFAULT_PS is not set
++CONFIG_NETDEVICES=y
++# CONFIG_ETHERNET is not set
++CONFIG_ATH6KL=y
++CONFIG_ATH6KL_SDIO=y
+ CONFIG_GPIOLIB=y
++CONFIG_MMC=y
++CONFIG_PWRSEQ_SIMPLE=y
++CONFIG_MMC_DW=y
++CONFIG_MMC_DW_PLTFM=y
++CONFIG_FW_LOADER_COMPRESS=y
++CONFIG_FW_LOADER_COMPRESS_ZSTD=y
+ CONFIG_WATCHDOG=y
+ CONFIG_DW_WATCHDOG=y
+ CONFIG_RESET_CONTROLLER=y

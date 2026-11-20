@@ -1,0 +1,415 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tsuji Riya <tsuji.riya@gmail.com>
+Date: Fri, 20 Nov 2026 01:21:14 +0000
+Subject: [PATCH 05/10] clk: add Celestial CNC1800L clocks; reset and pin mux
+ from DT
+
+Describe the display PLL (TVE PLL, 27MHz * (fb + 1) / m with the
+settings of the vendor disp_pll_cfg[] table) with the display and HDMI
+TMDS dividers, and the clock enables of the display, TMDS, audio, CEC
+and the USB PHY bypass ("enable and 48MHz"). Dividers and gates use the
+generic clk-divider and clk-gate. Every clock output is enabled at
+probe, as the vendor SDIO probe does, since the one the SDIO host needs
+is not known.
+
+The reset bits of the clock block are active low: describe them for
+reset-simple (snps,dw-low-reset), and the pin mux (16 bit registers)
+for pinctrl-single.
+---
+ .../clock/celestial,cnc1800l-clk.yaml         |  49 +++++
+ arch/arm/boot/dts/celestial/cnc1800l.dtsi     |  37 ++++
+ arch/arm/configs/cnc1800l_defconfig           |   4 +
+ drivers/clk/Kconfig                           |   8 +
+ drivers/clk/Makefile                          |   1 +
+ drivers/clk/clk-cnc1800l.c                    | 198 ++++++++++++++++++
+ .../clock/celestial,cnc1800l-clk.h            |  15 ++
+ 7 files changed, 312 insertions(+)
+ create mode 100644 Documentation/devicetree/bindings/clock/celestial,cnc1800l-clk.yaml
+ create mode 100644 drivers/clk/clk-cnc1800l.c
+ create mode 100644 include/dt-bindings/clock/celestial,cnc1800l-clk.h
+
+diff --git a/Documentation/devicetree/bindings/clock/celestial,cnc1800l-clk.yaml b/Documentation/devicetree/bindings/clock/celestial,cnc1800l-clk.yaml
+new file mode 100644
+index 000000000..17a8c8664
+--- /dev/null
++++ b/Documentation/devicetree/bindings/clock/celestial,cnc1800l-clk.yaml
+@@ -0,0 +1,49 @@
++# SPDX-License-Identifier: GPL-2.0-only OR BSD-2-Clause
++%YAML 1.2
++---
++$id: http://devicetree.org/schemas/clock/celestial,cnc1800l-clk.yaml#
++$schema: http://devicetree.org/meta-schemas/core.yaml#
++
++title: Celestial (Cavium) CNC1800L clock controller
++
++maintainers:
++  - Tsuji Riya <tsuji.riya@gmail.com>
++
++description:
++  The display PLL with the display and HDMI TMDS dividers and the clock
++  enables of the clock block. Its reset register (at +0x200) is a
++  separate snps,dw-low-reset controller. Clock numbers are in
++  include/dt-bindings/clock/celestial,cnc1800l-clk.h.
++
++properties:
++  compatible:
++    const: celestial,cnc1800l-clk
++
++  reg:
++    items:
++      - description: PLL, divider and clock enable registers
++      - description: PLL sleep and USB PHY bypass registers
++
++  clocks:
++    items:
++      - description: 27MHz oscillator
++
++  "#clock-cells":
++    const: 1
++
++required:
++  - compatible
++  - reg
++  - clocks
++  - "#clock-cells"
++
++additionalProperties: false
++
++examples:
++  - |
++    clock-controller@b2100000 {
++        compatible = "celestial,cnc1800l-clk";
++        reg = <0xb2100000 0x200>, <0xb210020c 0x10>;
++        clocks = <&osc27m>;
++        #clock-cells = <1>;
++    };
+diff --git a/arch/arm/boot/dts/celestial/cnc1800l.dtsi b/arch/arm/boot/dts/celestial/cnc1800l.dtsi
+index b710f3297..c564bbfaf 100644
+--- a/arch/arm/boot/dts/celestial/cnc1800l.dtsi
++++ b/arch/arm/boot/dts/celestial/cnc1800l.dtsi
+@@ -6,6 +6,8 @@
+  * 2.6.32 BSP (mach/cnc1800l.h, mach/irqs.h).
+  */
+ 
++#include <dt-bindings/clock/celestial,cnc1800l-clk.h>
++
+ / {
+ 	compatible = "celestial,cnc1800l";
+ 	#address-cells = <1>;
+@@ -27,6 +29,12 @@ cpu@0 {
+ 		};
+ 	};
+ 
++	osc27m: clock-osc {
++		compatible = "fixed-clock";
++		#clock-cells = <0>;
++		clock-frequency = <27000000>;
++	};
++
+ 	/* PCLK, drives the UARTs and the APB timer */
+ 	pclk: clock-pclk {
+ 		compatible = "fixed-clock";
+@@ -61,6 +69,35 @@ intc: interrupt-controller@80140000 {
+ 			#interrupt-cells = <1>;
+ 		};
+ 
++		/* the reset bits at +0x200 are a reset controller of their own */
++		clk: clock-controller@b2100000 {
++			compatible = "celestial,cnc1800l-clk";
++			reg = <0xb2100000 0x200>, <0xb210020c 0x10>;
++			clocks = <&osc27m>;
++			#clock-cells = <1>;
++		};
++
++		/* active low, vendor clock_*_reset() */
++		rst: reset-controller@b2100200 {
++			compatible = "snps,dw-low-reset";
++			reg = <0xb2100200 0x4>;
++			#reset-cells = <1>;
++		};
++
++		/* one bit (or field) per function, 16 bit accesses as the vendor cnc1800l_mux.c */
++		pinmux: pinmux@b2110000 {
++			compatible = "pinctrl-single";
++			reg = <0xb2110000 0x30>;
++			#pinctrl-cells = <2>;
++			pinctrl-single,bit-per-mux;
++			pinctrl-single,register-width = <16>;
++			pinctrl-single,function-mask = <0x1>;
++
++			sdio_pins: sdio-pins {
++				pinctrl-single,bits = <0x24 0x1 0x1>;
++			};
++		};
++
+ 		ahb_timer: timer@80270000 {
+ 			compatible = "celestial,cnc1800l-ahb-timer";
+ 			reg = <0x80270000 0x100>;
+diff --git a/arch/arm/configs/cnc1800l_defconfig b/arch/arm/configs/cnc1800l_defconfig
+index f6812d27d..387d67a96 100644
+--- a/arch/arm/configs/cnc1800l_defconfig
++++ b/arch/arm/configs/cnc1800l_defconfig
+@@ -38,3 +38,7 @@ CONFIG_MTD_UBI=y
+ CONFIG_UBIFS_FS=y
+ CONFIG_VFP=y
+ CONFIG_GPIOLIB=y
++CONFIG_RESET_CONTROLLER=y
++CONFIG_RESET_SIMPLE=y
++CONFIG_PINCTRL=y
++CONFIG_PINCTRL_SINGLE=y
+diff --git a/drivers/clk/Kconfig b/drivers/clk/Kconfig
+index 1717ce75a..6d16a7f5f 100644
+--- a/drivers/clk/Kconfig
++++ b/drivers/clk/Kconfig
+@@ -178,6 +178,14 @@ config COMMON_CLK_BM1880
+ 	help
+ 	  This driver supports the clocks on Bitmain BM1880 SoC.
+ 
++config COMMON_CLK_CNC1800L
++	bool "Celestial CNC1800L clocks"
++	depends on ARCH_CELESTIAL || COMPILE_TEST
++	default ARCH_CELESTIAL
++	help
++	  The display PLL, display and HDMI dividers and the clock enables
++	  of the Celestial (Cavium) CNC1800L SoC.
++
+ config COMMON_CLK_CDCE706
+ 	tristate "Clock driver for TI CDCE706 clock synthesizer"
+ 	depends on I2C
+diff --git a/drivers/clk/Makefile b/drivers/clk/Makefile
+index cc108a75a..0305ba693 100644
+--- a/drivers/clk/Makefile
++++ b/drivers/clk/Makefile
+@@ -50,6 +50,7 @@ obj-$(CONFIG_COMMON_CLK_AXI_CLKGEN)	+= clk-axi-clkgen.o
+ obj-$(CONFIG_ARCH_AXXIA)		+= clk-axm5516.o
+ obj-$(CONFIG_COMMON_CLK_BD718XX)	+= clk-bd718x7.o
+ obj-$(CONFIG_COMMON_CLK_BM1880)		+= clk-bm1880.o
++obj-$(CONFIG_COMMON_CLK_CNC1800L)	+= clk-cnc1800l.o
+ obj-$(CONFIG_COMMON_CLK_CDCE706)	+= clk-cdce706.o
+ obj-$(CONFIG_COMMON_CLK_CDCE925)	+= clk-cdce925.o
+ obj-$(CONFIG_ARCH_CLPS711X)		+= clk-clps711x.o
+diff --git a/drivers/clk/clk-cnc1800l.c b/drivers/clk/clk-cnc1800l.c
+new file mode 100644
+index 000000000..1edb0713a
+--- /dev/null
++++ b/drivers/clk/clk-cnc1800l.c
+@@ -0,0 +1,198 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Celestial (Cavium) CNC1800L clocks: the display PLL (TVE PLL) with the
++ * display and HDMI TMDS dividers, and the clock enables the drivers use.
++ * The other clocks are left as the boot loader set them up and are
++ * described as fixed clocks. Register use of the vendor
++ * cnc1800l_power_clk.c.
++ */
++
++#include <linux/clk-provider.h>
++#include <linux/delay.h>
++#include <linux/io.h>
++#include <linux/mod_devicetable.h>
++#include <linux/platform_device.h>
++#include <linux/slab.h>
++#include <linux/spinlock.h>
++
++#include <dt-bindings/clock/celestial,cnc1800l-clk.h>
++
++/* first register range, at 0xb2100000 */
++#define PLL_TVE_DIV	0x108
++#define  TVE_DIV_EN	BIT(15)
++#define PLL_CLK_EN	0x140
++#define TVE_DIV_N	0x148
++/* second register range, at 0xb210020c */
++#define PLL_SLEEP_N	0x00
++#define USB_ULPI_BYPASS	0x0c
++
++static DEFINE_SPINLOCK(cnc_clk_lock);
++
++struct cnc_pll {
++	struct clk_hw hw;
++	void __iomem *base, *sleep;
++};
++
++#define to_cnc_pll(_hw) container_of(_hw, struct cnc_pll, hw)
++
++/* PLL settings of the vendor disp_pll_cfg[] table: 27MHz * (fb + 1) / m */
++static const struct { u8 m, fb; } cnc_pll_cfg[] = {
++	{ 4, 15 },	/* 108MHz: 27MHz SD modes, / 4 */
++	{ 2, 21 },	/* 297MHz: 148.5 and 74.25MHz HD modes, / 2 and / 4 */
++	{ 15, 27 },	/* 50.4MHz: 640x480 (25.2MHz), / 2 */
++	{ 5, 23 },	/* 129.6MHz: 1024x768 (64.8MHz), / 2 */
++	{ 2, 15 },	/* 216MHz: 1280x1024 (108MHz), / 2 */
++};
++
++static unsigned long cnc_pll_rate(unsigned long parent, unsigned int m, unsigned int fb)
++{
++	return m ? parent / m * (fb + 1) : 0;
++}
++
++static unsigned long cnc_pll_recalc_rate(struct clk_hw *hw, unsigned long parent)
++{
++	u32 v = readl(to_cnc_pll(hw)->base + PLL_TVE_DIV);
++
++	return cnc_pll_rate(parent, v & 0xff, (v >> 8) & 0x7f);
++}
++
++static int cnc_pll_determine_rate(struct clk_hw *hw, struct clk_rate_request *req)
++{
++	unsigned long best = 0, rate;
++	unsigned int i;
++
++	for (i = 0; i < ARRAY_SIZE(cnc_pll_cfg); i++) {
++		rate = cnc_pll_rate(req->best_parent_rate, cnc_pll_cfg[i].m, cnc_pll_cfg[i].fb);
++		if (abs_diff(rate, req->rate) < abs_diff(best, req->rate))
++			best = rate;
++	}
++	req->rate = best;
++	return 0;
++}
++
++static int cnc_pll_set_rate(struct clk_hw *hw, unsigned long rate, unsigned long parent)
++{
++	struct cnc_pll *pll = to_cnc_pll(hw);
++	unsigned long flags;
++	unsigned int i;
++	u32 v;
++
++	for (i = 0; i < ARRAY_SIZE(cnc_pll_cfg); i++)
++		if (cnc_pll_rate(parent, cnc_pll_cfg[i].m, cnc_pll_cfg[i].fb) == rate)
++			break;
++	if (i == ARRAY_SIZE(cnc_pll_cfg))
++		return -EINVAL;
++
++	/* clock_disptve_pllmode(): sleep (bit 1, then 0), program, wake (bit 0, then 1) */
++	spin_lock_irqsave(&cnc_clk_lock, flags);
++	writel(readl(pll->sleep) & ~BIT(1), pll->sleep);
++	udelay(10);
++	writel(readl(pll->sleep) & ~BIT(0), pll->sleep);
++	v = readl(pll->base + PLL_TVE_DIV) & ~0xffff;
++	writel(v | TVE_DIV_EN | cnc_pll_cfg[i].fb << 8 | cnc_pll_cfg[i].m, pll->base + PLL_TVE_DIV);
++	spin_unlock_irqrestore(&cnc_clk_lock, flags);
++	usleep_range(500, 1000);
++	spin_lock_irqsave(&cnc_clk_lock, flags);
++	writel(readl(pll->sleep) | BIT(0), pll->sleep);
++	udelay(100);
++	writel(readl(pll->sleep) | BIT(1), pll->sleep);
++	spin_unlock_irqrestore(&cnc_clk_lock, flags);
++	return 0;
++}
++
++static const struct clk_ops cnc_pll_ops = {
++	.recalc_rate	= cnc_pll_recalc_rate,
++	.determine_rate	= cnc_pll_determine_rate,
++	.set_rate	= cnc_pll_set_rate,
++};
++
++static int cnc_clk_probe(struct platform_device *pdev)
++{
++	struct device *dev = &pdev->dev;
++	struct clk_hw_onecell_data *data;
++	struct clk_init_data init = {};
++	const char *osc;
++	void __iomem *base, *sleep;
++	struct cnc_pll *pll;
++	struct clk_hw **hws;
++	int ret;
++
++	base = devm_platform_ioremap_resource(pdev, 0);
++	if (IS_ERR(base))
++		return PTR_ERR(base);
++	sleep = devm_platform_ioremap_resource(pdev, 1);
++	if (IS_ERR(sleep))
++		return PTR_ERR(sleep);
++
++	data = devm_kzalloc(dev, struct_size(data, hws, CNC1800L_NR_CLKS), GFP_KERNEL);
++	pll = devm_kzalloc(dev, sizeof(*pll), GFP_KERNEL);
++	if (!data || !pll)
++		return -ENOMEM;
++	data->num = CNC1800L_NR_CLKS;
++	hws = data->hws;
++
++	/*
++	 * shortcut: every clock output enabled as the vendor SDIO probe does
++	 * (which one the SDIO host needs is not known); gate them one by one
++	 * once the enables are understood.
++	 */
++	writel(~0, base + PLL_CLK_EN);
++
++	osc = of_clk_get_parent_name(dev->of_node, 0);
++	pll->base = base;
++	pll->sleep = sleep;
++	init.name = "tve_pll";
++	init.ops = &cnc_pll_ops;
++	init.parent_names = &osc;
++	init.num_parents = 1;
++	pll->hw.init = &init;
++	ret = devm_clk_hw_register(dev, &pll->hw);
++	if (ret)
++		return ret;
++	hws[CNC1800L_CLK_TVE_PLL] = &pll->hw;
++
++	hws[CNC1800L_CLK_DISP0] = devm_clk_hw_register_divider(dev, "disp0_div", "tve_pll",
++			CLK_SET_RATE_PARENT, base + TVE_DIV_N, 8, 4, CLK_DIVIDER_ONE_BASED,
++			&cnc_clk_lock);
++	hws[CNC1800L_CLK_HDMI_TMDS] = devm_clk_hw_register_divider(dev, "tmds_div", "tve_pll",
++			CLK_SET_RATE_PARENT, base + TVE_DIV_N, 12, 4, CLK_DIVIDER_ONE_BASED,
++			&cnc_clk_lock);
++	if (IS_ERR(hws[CNC1800L_CLK_DISP0]) || IS_ERR(hws[CNC1800L_CLK_HDMI_TMDS]))
++		return -EINVAL;
++	/* left running for the picture the boot loader may show until the display driver */
++	hws[CNC1800L_CLK_DISP0] = devm_clk_hw_register_gate(dev, "disp0", "disp0_div",
++			CLK_SET_RATE_PARENT | CLK_IGNORE_UNUSED, base + PLL_CLK_EN, 4, 0,
++			&cnc_clk_lock);
++	hws[CNC1800L_CLK_HDMI_TMDS] = devm_clk_hw_register_gate(dev, "hdmi_tmds", "tmds_div",
++			CLK_SET_RATE_PARENT | CLK_IGNORE_UNUSED, base + PLL_CLK_EN, 6, 0,
++			&cnc_clk_lock);
++	hws[CNC1800L_CLK_AUDIO] = devm_clk_hw_register_gate(dev, "audio", NULL, 0,
++			base + PLL_CLK_EN, 22, 0, &cnc_clk_lock);
++	hws[CNC1800L_CLK_CEC] = devm_clk_hw_register_gate(dev, "cec", NULL, 0,
++			base + PLL_CLK_EN, 26, 0, &cnc_clk_lock);
++	/* ULPI bypass bits 0-1, "enable and 48MHz" for the USB PHY */
++	hws[CNC1800L_CLK_USB_PHY] = devm_clk_hw_register_gate(dev, "usb_phy", NULL, 0,
++			sleep + USB_ULPI_BYPASS, 1, 0, &cnc_clk_lock);
++	hws[CNC1800L_CLK_USB] = devm_clk_hw_register_gate(dev, "usb", "usb_phy", 0,
++			sleep + USB_ULPI_BYPASS, 0, 0, &cnc_clk_lock);
++
++	for (ret = 0; ret < CNC1800L_NR_CLKS; ret++)
++		if (IS_ERR(hws[ret]))
++			return PTR_ERR(hws[ret]);
++
++	return devm_of_clk_add_hw_provider(dev, of_clk_hw_onecell_get, data);
++}
++
++static const struct of_device_id cnc_clk_of_match[] = {
++	{ .compatible = "celestial,cnc1800l-clk" },
++	{ }
++};
++
++static struct platform_driver cnc_clk_driver = {
++	.probe	= cnc_clk_probe,
++	.driver	= {
++		.name		= "cnc1800l-clk",
++		.of_match_table	= cnc_clk_of_match,
++	},
++};
++builtin_platform_driver(cnc_clk_driver);
+diff --git a/include/dt-bindings/clock/celestial,cnc1800l-clk.h b/include/dt-bindings/clock/celestial,cnc1800l-clk.h
+new file mode 100644
+index 000000000..abbeb0606
+--- /dev/null
++++ b/include/dt-bindings/clock/celestial,cnc1800l-clk.h
+@@ -0,0 +1,15 @@
++/* SPDX-License-Identifier: GPL-2.0-only OR BSD-2-Clause */
++#ifndef _DT_BINDINGS_CLOCK_CELESTIAL_CNC1800L_H
++#define _DT_BINDINGS_CLOCK_CELESTIAL_CNC1800L_H
++
++#define CNC1800L_CLK_TVE_PLL	0
++#define CNC1800L_CLK_DISP0	1
++#define CNC1800L_CLK_HDMI_TMDS	2
++#define CNC1800L_CLK_AUDIO	3
++#define CNC1800L_CLK_CEC	4
++#define CNC1800L_CLK_USB_PHY	5
++#define CNC1800L_CLK_USB	6
++
++#define CNC1800L_NR_CLKS	7
++
++#endif
