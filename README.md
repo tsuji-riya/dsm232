@@ -6,6 +6,6 @@ D-Link DSM-232 (Celestial CNC1800L) に Linux 7.2 + Alpine Linux を載せる作
 ```bash
 ./build-usb.sh
 ```
-`out/dsm232-usb.img` を USB メモリに書き、挿したまま電源を入れる(純正 FW が一度起動してから USB の Linux に切り替わる。実機未検証。UART で起動する方法もある)。詳細と注意: [docs/USB_BOOT_ALPINE.md](docs/USB_BOOT_ALPINE.md)
+`out/dsm232-usb.img` を USB メモリに書き、挿したまま電源を入れる(純正 FW が一度起動してから USB の Linux に切り替わる。実機で確認済み。UART で起動する方法もある)。詳細と注意: [docs/USB_BOOT_ALPINE.md](docs/USB_BOOT_ALPINE.md)
 
 reboot・USB・Wi-Fi・HDMI(DRM)・GPIO・CEC と未対応の項目: [docs/LINUX_PERIPHERALS.md](docs/LINUX_PERIPHERALS.md)

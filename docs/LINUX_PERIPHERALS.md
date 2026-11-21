@@ -10,6 +10,7 @@
 - reboot(dw_wdt 経由)/ poweroff: `reboot` で再起動し、`poweroff` で停止した。
 - ボタン(GPIO 割り込み): 押すたびに `KEY_PROG1` の 1 / 0 が出た。LED は点灯。
 - SSH(dropbear)、起動時の Wi-Fi 自動接続と NTP。
+- NAND / SPI-NOR: 読み出しのみ確認(詳細は [FLASH_SUPPORT.md](FLASH_SUPPORT.md))。
 - CEC: 送信と「ACK なし」の検出は動く。CEC 対応のテレビが無く(PC モニターは CEC 非対応)、相手との通信は**未検証**。
 
 根拠の出典の略記:
@@ -223,7 +224,7 @@ SYS_CTRL1 を直した後、テレビは 1080p60 で同期するようになっ�
 - `steps` で切り分けた結果(`logo` で映っている状態の上から実行): DF だけ = 映る。HDMI TX のレジスタだけ = 黒。
 - U-Boot で `logo` を実行し、上半分を赤く塗った後に 1 か所ずつ書き換えた結果: HDCP_CTRL=0 で黒になった。SRST パルスでは色化けし(暗号化中のリセット)、Audio InfoFrame を止めても変化はなかった。
 - HDCP_CTRL=0x04(HDCP ブロックはリセット解除、暗号化なし)でも黒だった。**送信部は HDCP で暗号化していないと映像の代わりにブランク色を出す**と判断した。純正 Linux ドライバ `SiITX.c` `siiTX_HDMI_Init()` にも「set the default output color to black when HDCP authentication not success」とある。
-- そこで HDCP 1.x 認証を実装した(`steps` の bit4)。純正 `SiITXHDCP.c` `siiTXHDCP_Authentication()` と同じ手順で、次の順に処理する。**未検証**。
+- そこで HDCP 1.x 認証を実装した(`steps` の bit4)。純正 `SiITXHDCP.c` `siiTXHDCP_Authentication()` と同じ手順で、次の順に処理する。実機で認証が通ることを確認済み。
   1. DDC マスタ(72:ED–F5)で受信側の BKSV を読み、1 と 0 が 20 個ずつあるか確認する
   2. CP_RESETN を立て、BCAPS で受信側がリピータかを見る
   3. AN を生成して受信側に書き、送信部の AKSV も受信側に書く

@@ -1,6 +1,6 @@
 # SPI / NAND フラッシュ対応(Linux 7.2 / U-Boot 2026.07)
 
-純正 BSP のドライバを解析し、現行の標準 API に合わせて再実装した。**ビルド確認のみ。実機未検証。**
+純正 BSP のドライバを解析し、現行の標準 API に合わせて再実装した。**Linux 7.2 は実機で読み出しまで確認**(SPI-NOR の ID、NAND の認識とパーティション、NAND の読み出し)。Linux からの書き込み(消去・書込・UBI)と U-Boot 2026.07 側は実機未検証。
 
 ## 1. ハードウェア(BSP から確認)
 ### NAND コントローラ(EMIF/DaVinci 系)
@@ -46,6 +46,6 @@ U-Boot バイナリは旧/新とも約 347KB(`0x5FF00` = 389,888 の上限内。
 
 ## 4. 未検証・要確認
 - NAND の CE 制御は `CEn_CFG_0` bit9 を操作(Linux は常時アサート、U-Boot は純正と同様に操作ごと)。タイミングレジスタ(CEn_CFG_1/2)は設定していない(ミニローダー/ブート済み設定を前提)。
-- 実機の NAND 型番・ページサイズ・ID が標準 ID テーブルで認識されるか(純正は `nand_ids.c` を追加改変)。認識されない場合は ID 追加が必要。
+- 実機の NAND は Linux 7.2 の標準 ID テーブルで認識され、読み出せた(純正は `nand_ids.c` を追加改変していたが、ID の追加は不要だった)。
 - Linux は当初 DR 以外を 32bit でアクセスしており、実機で FIFO 深さが 0 と検出されて `CS de-assertion on Tx` → spi-nor の probe が -5 で失敗した。`patches/0011-*` で `reg-io-width=<2>` のとき全レジスタを 16bit アクセスに修正(U-Boot 側は当初から 16bit)。修正後は転送できたが ID が `ff ff ...` だった → 純正 U-Boot は **mode 3**(CTRLR0=0xC7: SCPOL=SCPH=1)・BAUDR=8(約 11.8MHz)。mode 0 では DW SSI がフレーム間でネイティブ CS を解放するため、`patches/0014-*` で mode 3・12MHz 指定に合わせた。ピンマックス(0xB211000C=1)は純正 `board_init` が毎回設定済み。SPI は純正ダンプの 128KiB(miniloader + env)だけを read-only で公開。
 - SPI-NAND ではなく並列 NAND 前提。

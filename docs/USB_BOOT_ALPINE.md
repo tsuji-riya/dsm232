@@ -1,8 +1,8 @@
 # USB メモリから Linux 7.2 + Alpine Linux を起動し HDMI にコンソールを出す
 
-> **更新**: HDMI は DRM ドライバ(`linux-7.2/patches/0009`)が EDID を読んで初期化し、`boot.cmd` は `logo` を実行しない。U-Boot の `logo` + `simple-framebuffer` の経路(`setenv hdmi uboot`、`hdmimode`)は削除したので、以下でそれを扱う記述は旧版の記録。USB・Wi-Fi・reboot も対応した。詳細は [LINUX_PERIPHERALS.md](LINUX_PERIPHERALS.md)。
+> **更新**: HDMI は DRM ドライバ(`linux-7.2/patches/0020`〜`0022`)が EDID を読んで初期化し、`boot.cmd` は `logo` を実行しない。U-Boot の `logo` + `simple-framebuffer` の経路(`setenv hdmi uboot`、`hdmimode`)は削除したので、以下でそれを扱う記述は旧版の記録。USB・Wi-Fi・reboot も対応した。詳細は [LINUX_PERIPHERALS.md](LINUX_PERIPHERALS.md)。
 
-**結論**: 純正 U-Boot(2011.06)の `logo` で HDMI を起動し、そのフレームバッファを Linux の `simple-framebuffer`(fbcon)で引き継ぐ。カーネル(`uImage`)と Alpine の initramfs(`uInitrd`)は U-Boot が USB の FAT から RAM に読む。NAND/SPI には一切書かない(`saveenv` を使う任意手順を除く)。**実機未検証**。
+**結論**: 純正 U-Boot(2011.06)の `logo` で HDMI を起動し、そのフレームバッファを Linux の `simple-framebuffer`(fbcon)で引き継ぐ。カーネル(`uImage`)と Alpine の initramfs(`uInitrd`)は U-Boot が USB の FAT から RAM に読む。NAND/SPI には一切書かない(`saveenv` を使う任意手順を除く)。(旧版の結論。現在の構成は冒頭の更新を参照)
 
 ## 1. 根拠(`dump/` の解析で確認したこと)
 | 事実 | 出所 |
@@ -17,7 +17,7 @@
 | CPU は TrustZone 付き ARMv6(SCR = CP15 c1,c1,0 を書いている) → ARM1176 と整合 | U-Boot の `mcr` 命令 |
 
 ## 2. 変更内容
-- `linux-7.2/patches/0004-*`: DTS の `/chosen` に `simple-framebuffer`(0x0C000000, 1920×1080, stride 3840, `r5g6b5`。`boot.cmd` は `logo 16 2 ...` = 1080p60)、`mem=137M`、defconfig に `VFP` / `VT` / `FB_SIMPLE` / `FRAMEBUFFER_CONSOLE`。
+- 旧 `linux-7.2/patches/0004-*`(削除済み。現在の 0004 はタイマー): DTS の `/chosen` に `simple-framebuffer`(0x0C000000, 1920×1080, stride 3840, `r5g6b5`。`boot.cmd` は `logo 16 2 ...` = 1080p60)、`mem=137M`、defconfig に `VFP` / `VT` / `FB_SIMPLE` / `FRAMEBUFFER_CONSOLE`。
   - `mem=137M` は必須: 純正 U-Boot は ATAG_MEM(256MB)を渡し、`ARM_ATAG_DTB_COMPAT` が DT の memory ノードを上書きする。無いとフレームバッファ領域を Linux が通常メモリとして使い、画面が壊れる(既存ポートの潜在バグでもあった)。
 - `linux-7.2/build.sh`: 上記の CONFIG が `.config` から消えていたら停止。
 - `alpine/build.sh`: Alpine armhf minirootfs(latest-stable、sha256 検証)→ busybox init + tty1/ttyS0 の getty → `uInitrd`、`boot.cmd` → `boot.scr`。
@@ -40,7 +40,7 @@ sudo dd if=out/dsm232-usb.img of=/dev/sdX bs=4M conv=fsync status=progress
 ```
 Windows / macOS: balenaEtcher か Rufus(DD モード)で `out/dsm232-usb.img` を書く。
 
-### 3.3 USB を挿して電源 ON(UART 不要。**実機未検証**)
+### 3.3 USB を挿して電源 ON(UART 不要。実機で確認済み)
 USB を挿したまま電源を入れると、純正ファームウェアが一度起動してから自動で再起動し、USB の Linux が起動する(純正の起動画面が出てから数十秒かかる)。USB を挿していなければ純正のまま起動する。本体の環境変数は、USB 起動のたびに一時的に書き換えて元に戻すので、終わった後は元と同じになる。
 
 仕組み(根拠は 6 節):
@@ -52,9 +52,9 @@ USB を挿したまま電源を入れると、純正ファームウェアが一�
 
 - **再起動ループ防止**: `app.sh` は環境変数を書く前に `cameo_factory/armed` を作る。USB の Linux まで届かずに純正に戻ってくると `armed` が残っているので、そのときは何もせず純正のまま動き、`armed` だけ消す(次の電源 ON で再挑戦)。
 - **USB ハブ**: U-Boot はハブの先のストレージも 0〜3 番として数え、Linux はラベル(FAT は `DSM232`、ext4 は `dsm232root`)でパーティションを探すので、ハブ越しでも、他の USB ディスクと一緒でも動く想定。ただし純正の `usbupg` は `/dev/sda` しか見ないので、**USB ディスクを複数つなぐときは、このメモリが `sda` になるとは限らない**(1 本だけなら問題ない)。
-- **本体に残るもの**: 何も残らない想定。jffs2 に `app.tar.gz` → `app.sh` が一時的に作られて消える。環境変数は 1 回の USB 起動で 4 回書き換わる(Linux で 2 回、U-Boot で 2 回)。
+- **本体に残るもの**: 何も残らない。USB を抜いて電源を入れると純正 FW が普通に起動することを実機で確認した。jffs2 に `app.tar.gz` → `app.sh` が一時的に作られて消える。環境変数は 1 回の USB 起動で 4 回書き換わる(Linux で 2 回、U-Boot で 2 回)。
 - **リスク**:
-  - 実機の 1.02.29 の `fwimg` が app タイプを受け付けるかは不明(読めたのは GPL 版 1.02.00)。拒否されても何も起きない。
+  - 実機の 1.02.29 の `fwimg` が app タイプを受け付けることは実機で確認した(読めたのは GPL 版 1.02.00 のソース)。
   - 環境変数の書き換え中に電源が切れると、U-Boot は工場出荷時の環境変数(`FIRST_BOOT=1`)に戻す(`Primary NVRAM parameter is corrupted` の処理)。
   - U-Boot が `dsmusb` の `for` ループを解釈できなかった場合も、`bootcmd` 自体は元に戻して保存し純正で起動する。`dsmusb` が環境変数に残るだけ。
   - U-Boot 2011.06 がハブの先の USB 1.1(フルスピード)機器を読めるかは未確認。普通の USB 2.0 メモリなら問題ない想定。
@@ -78,7 +78,7 @@ saveenv
 ### 3.5 解像度を変える
 既定は 1920×1080 プログレッシブ 60Hz(mode 16、`logo` が出せる最大)。ディスプレイが受けない場合は次の 2 か所を**同じ値**に変えて `./build-usb.sh` をやり直す(1 か所だけ変えると表示が崩れる)。
 - `alpine/boot.cmd`: `logo <mode> 2 ...`
-- `linux-7.2/patches/0004-*` の DTS: `width` / `height` / `stride`(= 幅×2)/ `reg` サイズ(= stride×高さ)
+- 旧 `linux-7.2/patches/0004-*`(削除済み)の DTS: `width` / `height` / `stride`(= 幅×2)/ `reg` サイズ(= stride×高さ)
 
 | mode | 解像度 | stride | reg サイズ |
 |---|---|---|---|
@@ -111,9 +111,9 @@ run bootcmd
 | `login:` が tty1/ttyS0 に出る | 目標達成。root はパスワード無し(`passwd` で設定) |
 
 ## 5. 未確認・限界
-- **すべて静的解析と設計のみ**。カーネル/initramfs のビルドもこの環境では未実施(Alpine CDN・kernel.org にアクセス不可)。`alpine/build.sh` はダミーのミラーでの動作確認のみ(非 root UID・再実行も確認)。`docker/build-all.sh` の FAT イメージ作成部分(sfdisk/mkfs.vfat/mtools)は、この環境のコンテナから apt が使えず未実行。
+- (更新: USB イメージのビルドと、UART 無しの USB 起動は実機で確認済み。以下は当初の記録)**すべて静的解析と設計のみ**。カーネル/initramfs のビルドもこの環境では未実施(Alpine CDN・kernel.org にアクセス不可)。`alpine/build.sh` はダミーのミラーでの動作確認のみ(非 root UID・再実行も確認)。`docker/build-all.sh` の FAT イメージ作成部分(sfdisk/mkfs.vfat/mtools)は、この環境のコンテナから apt が使えず未実行。
 - (更新: USB と Wi-Fi は [LINUX_PERIPHERALS.md](LINUX_PERIPHERALS.md) で対応)Linux 側の USB(EHCI 0x80200000)・Ethernet ドライバは未対応。rootfs は RAM 上で、**変更は再起動で消える**。`apk` もネットワークが無いので使えない。USB 上の rootfs に永続化するには EHCI/OHCI の IRQ とクロック/PHY 初期化の特定が必要(純正カーネルは暗号化されておりダンプからは読めなかった)。
-- `hdmi.bin` が HDMI を常時サービスする必要があるか(ホットプラグ・EDID 再交渉)は不明。モニタ抜き差しで消える可能性がある。
+- (更新: DRM ドライバがホットプラグを扱うので解決)`hdmi.bin` が HDMI を常時サービスする必要があるか(ホットプラグ・EDID 再交渉)は不明。モニタ抜き差しで消える可能性がある。
 - `logo` の color 6(ARGB8888)は未使用。RGB565 は純正で実績がある方を選んだ。
 
 ## 6. 純正 FW に「USB を挿して電源 ON だけで起動」する機能はあるか
@@ -136,4 +136,4 @@ run bootcmd
 - 他の type は `/dev/mtdN` に直接書く(`nvram`・`uboot`・`miniloader` も含む)ので使わない。
 - `/dlink/env set 名前 値…` は値を 256 byte のスタック上のバッファにつなげて `/dev/mtd1`(U-Boot の環境変数。`dump/spi.bin` 0xc000)に CRC 付きで書く。長さの検査が無いので、値は 256 byte 未満にする。`env set 名前` だけなら削除。終了コードは成功しても常に 1(`main` が 1 を返す)なので、書けたかは `get` で読み戻して確かめる。
 
-- 未確認: Linux 側は GPL 版 1.02.00 のソースを読んだ結果。実機の 1.02.29 は rootfs が暗号化されていて読めず、app イメージや `env` が GPL 版と同じかも確認できていない。
+- Linux 側は GPL 版 1.02.00 のソースを読んだ結果。実機の 1.02.29 は rootfs が暗号化されていて読めないが、app イメージで USB 起動できることは実機で確認した。

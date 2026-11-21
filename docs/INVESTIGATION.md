@@ -48,7 +48,7 @@
 **未確認 (実機/追加情報が必要)**
 - 実機の UART 端子位置・電圧、フラッシュ型番、NAND パーティション (mtdparts) と純正の bootargs
 - 工場出荷 U-Boot が secure boot 有効か (署名ツールは "insecure" 向けと記載)
-- 実機のダンプ (NAND/SPI) の有無 — 変更前に必ずバックアップを推奨
+- (取得済み)実機のダンプ (NAND/SPI) は `dump/nand.bin` / `dump/spi.bin`
 
 ## 5. 次のステップ案
 
