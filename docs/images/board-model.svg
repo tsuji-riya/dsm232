@@ -1,0 +1,193 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1320 955" font-family="'Hiragino Sans','Noto Sans JP','Segoe UI',sans-serif">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0d141d"/><stop offset="1" stop-color="#090d12"/>
+    </linearGradient>
+    <linearGradient id="pcb" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#128a4f"/><stop offset="0.55" stop-color="#0d7341"/><stop offset="1" stop-color="#095c33"/>
+    </linearGradient>
+    <linearGradient id="metal" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#e8ecf1"/><stop offset="0.5" stop-color="#aeb6c0"/><stop offset="1" stop-color="#7e8794"/>
+    </linearGradient>
+    <linearGradient id="chip" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#23262d"/><stop offset="1" stop-color="#101216"/>
+    </linearGradient>
+    <pattern id="dots" width="26" height="26" patternUnits="userSpaceOnUse">
+      <circle cx="2" cy="2" r="1.4" fill="#ffffff" opacity="0.05"/>
+    </pattern>
+    <g id="badge">
+      <circle r="14" fill="#ffb454" stroke="#0d141d" stroke-width="2.5"/>
+    </g>
+    <g id="passives" fill="#d8dde3" opacity="0.55">
+      <rect x="0" y="0" width="10" height="5" rx="1"/><rect x="16" y="0" width="10" height="5" rx="1"/>
+      <rect x="32" y="0" width="10" height="5" rx="1"/><rect x="0" y="11" width="10" height="5" rx="1"/>
+      <rect x="16" y="11" width="10" height="5" rx="1"/><rect x="32" y="11" width="10" height="5" rx="1"/>
+    </g>
+  </defs>
+
+  <rect width="1320" height="1000" fill="url(#bg)"/>
+  <rect width="1320" height="1000" fill="url(#dots)"/>
+
+  <!-- header -->
+  <rect x="56" y="46" width="6" height="58" rx="3" fill="#ffb454"/>
+  <text x="80" y="76" font-size="34" font-weight="700" fill="#f2f5f8" letter-spacing="2">DSM-232 BOARD MODEL</text>
+  <text x="80" y="102" font-size="16" fill="#9fb0c0">D-Link DSM-232 · REV.A1 · PCB 21516DS232A11A1 — 実機写真から起こしたモデル図 (配置・比率は概略)</text>
+  <text x="1246" y="76" font-size="15" fill="#ffb454" text-anchor="end" font-weight="700" letter-spacing="1">FRONT / BACK</text>
+  <text x="1246" y="102" font-size="13" fill="#9fb0c0" text-anchor="end">裏面は裏から見た図 (左右反転)</text>
+
+  <!-- ============ FRONT ============ -->
+  <text x="70" y="140" font-size="17" font-weight="700" fill="#e8eef4" letter-spacing="1">FRONT — 部品面</text>
+  <g transform="translate(70,152)">
+    <rect x="0" y="0" width="320" height="600" rx="18" fill="url(#pcb)" stroke="#063d22" stroke-width="2"/>
+    <rect x="10" y="10" width="300" height="580" rx="12" fill="none" stroke="#e9c46a" stroke-width="1.6" opacity="0.45"/>
+    <!-- HDMI -->
+    <rect x="26" y="8" width="108" height="48" rx="6" fill="url(#metal)"/>
+    <rect x="38" y="20" width="84" height="24" rx="3" fill="#2b2f36"/>
+    <use href="#badge" transform="translate(134,10)"/><text x="134" y="16" font-size="15" font-weight="700" fill="#14181d" text-anchor="middle">1</text>
+    <!-- USB-A -->
+    <rect x="196" y="8" width="98" height="48" rx="6" fill="url(#metal)"/>
+    <rect x="208" y="20" width="74" height="24" rx="3" fill="#eef1f4"/>
+    <use href="#badge" transform="translate(294,10)"/><text x="294" y="16" font-size="15" font-weight="700" fill="#14181d" text-anchor="middle">2</text>
+    <!-- screw hole -->
+    <circle cx="166" cy="32" r="11" fill="#5d4320"/><circle cx="166" cy="32" r="6.5" fill="#0b0f13"/>
+    <!-- U501 QFP -->
+    <g stroke="#c7ccd4" stroke-width="2" opacity="0.8">
+      <path d="M100 74 v-8 M116 74 v-8 M132 74 v-8 M148 74 v-8 M164 74 v-8 M100 122 v8 M116 122 v8 M132 122 v8 M148 122 v8 M164 122 v8"/>
+    </g>
+    <rect x="92" y="74" width="88" height="48" rx="3" fill="url(#chip)"/>
+    <text x="136" y="103" font-size="12" fill="#aeb6c0" text-anchor="middle">U501</text>
+    <use href="#badge" transform="translate(180,74)"/><text x="180" y="80" font-size="15" font-weight="700" fill="#14181d" text-anchor="middle">3</text>
+    <use href="#passives" transform="translate(216,84) scale(0.9)"/>
+    <use href="#passives" transform="translate(216,116) scale(0.9)"/>
+    <!-- J16 pads -->
+    <g fill="#0b0f13" stroke="#e9c46a" stroke-width="2.4">
+      <circle cx="36" cy="222" r="8"/><circle cx="36" cy="252" r="8"/><circle cx="36" cy="282" r="8"/><circle cx="36" cy="312" r="8"/>
+    </g>
+    <use href="#badge" transform="translate(58,214)"/><text x="58" y="220" font-size="15" font-weight="700" fill="#14181d" text-anchor="middle">5</text>
+    <!-- crystal Y101 -->
+    <rect x="24" y="336" width="26" height="34" rx="4" fill="url(#metal)"/>
+    <text x="37" y="390" font-size="10" fill="#dce6ee" text-anchor="middle">Y101</text>
+    <!-- SoC -->
+    <rect x="92" y="196" width="146" height="146" rx="8" fill="url(#chip)" stroke="#2c3038" stroke-width="1.5"/>
+    <text x="165" y="262" font-size="19" font-weight="700" fill="#cfd6de" text-anchor="middle" letter-spacing="2">CAVIUM</text>
+    <text x="165" y="288" font-size="14" fill="#ffb454" text-anchor="middle" letter-spacing="1">CNC1800L SoC</text>
+    <use href="#badge" transform="translate(238,196)"/><text x="238" y="202" font-size="15" font-weight="700" fill="#14181d" text-anchor="middle">4</text>
+    <use href="#passives" transform="translate(252,220) scale(0.85)"/>
+    <use href="#passives" transform="translate(252,262) scale(0.85)"/>
+    <!-- micro-USB right edge -->
+    <rect x="294" y="330" width="26" height="46" rx="4" fill="url(#metal)"/>
+    <rect x="300" y="342" width="14" height="22" rx="2" fill="#2b2f36"/>
+    <use href="#badge" transform="translate(292,328)"/><text x="292" y="334" font-size="15" font-weight="700" fill="#14181d" text-anchor="middle">6</text>
+    <!-- DDR -->
+    <rect x="32" y="424" width="130" height="86" rx="4" fill="url(#chip)" stroke="#2c3038"/>
+    <text x="97" y="458" font-size="13" font-weight="700" fill="#cfd6de" text-anchor="middle">SAMSUNG</text>
+    <text x="97" y="478" font-size="11.5" fill="#9fb0c0" text-anchor="middle">K4B2G1646E 系 · U200</text>
+    <text x="97" y="496" font-size="11.5" fill="#9fb0c0" text-anchor="middle">DDR3 2Gbit (256MB)</text>
+    <use href="#badge" transform="translate(162,424)"/><text x="162" y="430" font-size="15" font-weight="700" fill="#14181d" text-anchor="middle">7</text>
+    <!-- Wi-Fi shield -->
+    <rect x="198" y="424" width="94" height="94" rx="6" fill="url(#metal)" stroke="#7e8794"/>
+    <g fill="#39404a" opacity="0.75">
+      <rect x="252" y="478" width="7" height="7"/><rect x="263" y="478" width="7" height="7"/><rect x="252" y="489" width="7" height="7"/>
+      <rect x="274" y="489" width="7" height="7"/><rect x="263" y="500" width="7" height="7"/>
+    </g>
+    <text x="245" y="452" font-size="12.5" font-weight="700" fill="#39404a" text-anchor="middle">Wi-Fi</text>
+    <text x="245" y="470" font-size="11.5" fill="#39404a" text-anchor="middle">AR6003 · U506</text>
+    <use href="#badge" transform="translate(292,424)"/><text x="292" y="430" font-size="15" font-weight="700" fill="#14181d" text-anchor="middle">8</text>
+    <!-- SW1 -->
+    <rect x="2" y="520" width="18" height="32" rx="3" fill="url(#metal)"/>
+    <use href="#badge" transform="translate(24,518)"/><text x="24" y="524" font-size="15" font-weight="700" fill="#14181d" text-anchor="middle">10</text>
+    <!-- LED D100 -->
+    <rect x="140" y="542" width="36" height="15" rx="3" fill="#ffcf6e" stroke="#b8860b"/>
+    <use href="#badge" transform="translate(196,540)"/><text x="196" y="546" font-size="15" font-weight="700" fill="#14181d" text-anchor="middle">9</text>
+    <!-- CN1 -->
+    <rect x="252" y="540" width="46" height="18" rx="2" fill="#1c1f24"/>
+    <g fill="#c7ccd4"><rect x="258" y="546" width="6" height="6"/><rect x="270" y="546" width="6" height="6"/><rect x="282" y="546" width="6" height="6"/></g>
+    <text x="24" y="586" font-size="12" fill="#dce6ee">REV.A1</text>
+    <text x="296" y="586" font-size="11" fill="#b9c8d4" text-anchor="end">SH1</text>
+  </g>
+
+  <!-- ============ BACK ============ -->
+  <text x="470" y="140" font-size="17" font-weight="700" fill="#e8eef4" letter-spacing="1">BACK — ハンダ面</text>
+  <g transform="translate(470,152)">
+    <rect x="0" y="0" width="320" height="600" rx="18" fill="url(#pcb)" stroke="#063d22" stroke-width="2"/>
+    <rect x="10" y="10" width="300" height="580" rx="12" fill="none" stroke="#e9c46a" stroke-width="1.6" opacity="0.45"/>
+    <!-- USB-A (back view: left) -->
+    <rect x="26" y="8" width="98" height="48" rx="6" fill="url(#metal)"/>
+    <rect x="38" y="20" width="74" height="24" rx="3" fill="#eef1f4"/>
+    <!-- HDMI (back view: right) -->
+    <rect x="196" y="8" width="108" height="48" rx="6" fill="url(#metal)"/>
+    <rect x="208" y="20" width="84" height="24" rx="3" fill="#2b2f36"/>
+    <circle cx="160" cy="32" r="11" fill="#5d4320"/><circle cx="160" cy="32" r="6.5" fill="#0b0f13"/>
+    <!-- NAND TSOP -->
+    <g stroke="#c7ccd4" stroke-width="2" opacity="0.8">
+      <path d="M44 84 v-8 M58 84 v-8 M72 84 v-8 M86 84 v-8 M100 84 v-8 M114 84 v-8 M128 84 v-8 M44 268 v8 M58 268 v8 M72 268 v8 M86 268 v8 M100 268 v8 M114 268 v8 M128 268 v8"/>
+    </g>
+    <rect x="34" y="84" width="106" height="184" rx="3" fill="url(#chip)"/>
+    <text x="87" y="158" font-size="13" font-weight="700" fill="#cfd6de" text-anchor="middle">TOSHIBA</text>
+    <text x="87" y="180" font-size="11" fill="#9fb0c0" text-anchor="middle">TC58NVG0S3E</text>
+    <text x="87" y="198" font-size="11" fill="#9fb0c0" text-anchor="middle">128MiB · U301</text>
+    <circle cx="87" cy="228" r="9" fill="#2aa198" opacity="0.85"/>
+    <use href="#badge" transform="translate(140,84)"/><text x="140" y="90" font-size="15" font-weight="700" fill="#14181d" text-anchor="middle">11</text>
+    <use href="#passives" transform="translate(168,96) scale(0.95)"/>
+    <use href="#passives" transform="translate(168,140) scale(0.95)"/>
+    <use href="#passives" transform="translate(168,220) scale(0.95)"/>
+    <!-- U302 SOIC-8 -->
+    <rect x="242" y="150" width="42" height="56" rx="3" fill="url(#chip)"/>
+    <g stroke="#c7ccd4" stroke-width="2" opacity="0.8"><path d="M242 162 h-7 M242 178 h-7 M242 194 h-7 M284 162 h7 M284 178 h7 M284 194 h7"/></g>
+    <use href="#badge" transform="translate(240,148)"/><text x="240" y="154" font-size="13" font-weight="700" fill="#14181d" text-anchor="middle">12</text>
+    <!-- micro-USB left edge -->
+    <rect x="0" y="300" width="26" height="46" rx="4" fill="url(#metal)"/>
+    <rect x="4" y="312" width="14" height="22" rx="2" fill="#2b2f36"/>
+    <!-- tantalum -->
+    <rect x="48" y="318" width="32" height="24" rx="3" fill="#e0a526"/>
+    <use href="#passives" transform="translate(120,300) scale(0.95)"/>
+    <use href="#passives" transform="translate(196,318) scale(0.95)"/>
+    <!-- antenna pattern -->
+    <g fill="none" stroke="#e9c46a" stroke-width="2" opacity="0.55">
+      <path d="M208 448 a58 58 0 0 1 58 40"/><path d="M208 448 a84 84 0 0 1 84 62"/>
+      <path d="M208 448 a36 36 0 0 1 36 24"/><path d="M208 448 l52 52 M208 448 l74 30 M208 448 l20 76"/>
+    </g>
+    <circle cx="208" cy="448" r="5" fill="#e9c46a" opacity="0.8"/>
+    <use href="#badge" transform="translate(282,428)"/><text x="282" y="434" font-size="13" font-weight="700" fill="#14181d" text-anchor="middle">13</text>
+    <!-- label omitted -->
+    <rect x="52" y="512" width="200" height="46" rx="4" fill="#ffffff" opacity="0.13"/>
+    <rect x="52" y="512" width="200" height="46" rx="4" fill="none" stroke="#ffffff" stroke-width="1.4" stroke-dasharray="6 4" opacity="0.6"/>
+    <text x="152" y="540" font-size="12" fill="#e8eef4" text-anchor="middle">個体ラベル部 (省略)</text>
+    <use href="#badge" transform="translate(52,512)"/><text x="52" y="518" font-size="13" font-weight="700" fill="#14181d" text-anchor="middle">14</text>
+    <text x="24" y="586" font-size="11" fill="#b9c8d4">アンテナ給電点付近に配線パターン</text>
+  </g>
+
+  <!-- ============ LEGEND ============ -->
+  <g transform="translate(850,152)">
+    <rect x="0" y="0" width="400" height="600" rx="16" fill="#111922" stroke="#26313d" stroke-width="1.5"/>
+    <text x="24" y="38" font-size="16" font-weight="700" fill="#ffb454" letter-spacing="1.5">LEGEND — 同定メモ</text>
+    <g font-size="14.5" fill="#dbe4ec">
+      <g transform="translate(24,58)"><circle cx="10" cy="10" r="10" fill="#ffb454"/><text x="10" y="15" font-size="12" font-weight="700" fill="#14181d" text-anchor="middle">1</text><text x="30" y="15">HDMI 出力 (Type-A)</text></g>
+      <g transform="translate(24,94)"><circle cx="10" cy="10" r="10" fill="#ffb454"/><text x="10" y="15" font-size="12" font-weight="700" fill="#14181d" text-anchor="middle">2</text><text x="30" y="15">USB-A ホストポート</text></g>
+      <g transform="translate(24,130)"><circle cx="10" cy="10" r="10" fill="#ffb454"/><text x="10" y="15" font-size="12" font-weight="700" fill="#14181d" text-anchor="middle">3</text><text x="30" y="15">周辺 IC U501 (QFP、役割未確認)</text></g>
+      <g transform="translate(24,166)"><circle cx="10" cy="10" r="10" fill="#ffb454"/><text x="10" y="15" font-size="12" font-weight="700" fill="#14181d" text-anchor="middle">4</text><text x="30" y="15">SoC: Cavium CNC1800L (BGA)</text></g>
+      <g transform="translate(24,202)"><circle cx="10" cy="10" r="10" fill="#ffb454"/><text x="10" y="15" font-size="12" font-weight="700" fill="#14181d" text-anchor="middle">5</text><text x="30" y="15">J16: 4穴パッド ※UART 候補 (推定)</text></g>
+      <g transform="translate(24,238)"><circle cx="10" cy="10" r="10" fill="#ffb454"/><text x="10" y="15" font-size="12" font-weight="700" fill="#14181d" text-anchor="middle">6</text><text x="30" y="15">micro-USB (給電)</text></g>
+      <g transform="translate(24,274)"><circle cx="10" cy="10" r="10" fill="#ffb454"/><text x="10" y="15" font-size="12" font-weight="700" fill="#14181d" text-anchor="middle">7</text><text x="30" y="15">DDR3: Samsung K4B2G1646E 系</text></g>
+      <g transform="translate(24,310)"><circle cx="10" cy="10" r="10" fill="#ffb454"/><text x="10" y="15" font-size="12" font-weight="700" fill="#14181d" text-anchor="middle">8</text><text x="30" y="15">Wi-Fi モジュール U506 (AR6003)</text></g>
+      <g transform="translate(24,346)"><circle cx="10" cy="10" r="10" fill="#ffb454"/><text x="10" y="15" font-size="12" font-weight="700" fill="#14181d" text-anchor="middle">9</text><text x="30" y="15">ステータス LED D100 (GPIO2)</text></g>
+      <g transform="translate(24,382)"><circle cx="10" cy="10" r="10" fill="#ffb454"/><text x="10" y="15" font-size="11" font-weight="700" fill="#14181d" text-anchor="middle">10</text><text x="30" y="15">ボタン SW1 (GPIO9 / KEY_PROG1)</text></g>
+      <g transform="translate(24,418)"><circle cx="10" cy="10" r="10" fill="#ffb454"/><text x="10" y="15" font-size="11" font-weight="700" fill="#14181d" text-anchor="middle">11</text><text x="30" y="15">NAND: Toshiba TC58NVG0S3E</text></g>
+      <g transform="translate(24,454)"><circle cx="10" cy="10" r="10" fill="#ffb454"/><text x="10" y="15" font-size="11" font-weight="700" fill="#14181d" text-anchor="middle">12</text><text x="30" y="15">U302 (SOIC-8) ※SPI フラッシュ候補</text></g>
+      <g transform="translate(24,490)"><circle cx="10" cy="10" r="10" fill="#ffb454"/><text x="10" y="15" font-size="11" font-weight="700" fill="#14181d" text-anchor="middle">13</text><text x="30" y="15">PCB アンテナパターン部 ※推定</text></g>
+      <g transform="translate(24,526)"><circle cx="10" cy="10" r="10" fill="#ffb454"/><text x="10" y="15" font-size="11" font-weight="700" fill="#14181d" text-anchor="middle">14</text><text x="30" y="15">個体ラベル部 (図では省略)</text></g>
+    </g>
+    <rect x="24" y="552" width="352" height="1.5" fill="#26313d"/>
+    <text x="24" y="578" font-size="12.5" fill="#8fa1b3">刻印・シルク・起動ログで確認したもの以外は</text>
+    <text x="24" y="596" font-size="12.5" fill="#8fa1b3">※印を付けて推定として分けています。</text>
+  </g>
+
+  <!-- footer notes -->
+  <g font-size="14" fill="#c3d0dc">
+    <rect x="70" y="792" width="1180" height="86" rx="14" fill="#111922" stroke="#26313d"/>
+    <text x="94" y="824">・シリアル番号 / MAC アドレス等の個体情報は図に含めていません (写真そのものは公開リポジトリに載せない方針)。</text>
+    <text x="94" y="850">・端子は HDMI / USB-A / micro-USB (給電) の 3 つだけ。LAN 端子はありません。筐体は G-cluster ロゴの白ケース (PC+ABS)。</text>
+    <text x="94" y="876" font-size="12.5" fill="#8fa1b3">出典: 実機写真 (2026-11-21) の刻印・シルク印刷と、docs/INVESTIGATION.md / docs/FLASH_SUPPORT.md の記録。</text>
+  </g>
+  <text x="625" y="928" font-size="13" fill="#66788a" text-anchor="middle">board-model.svg — drawn from photographs, not to scale</text>
+</svg>
