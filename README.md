@@ -11,6 +11,24 @@ D-Link **DSM-232** (rev A1、Celestial **CNC1800L** SoC) に **Linux 7.2 + Alpin
 - カーネル: Linux **v7.2** (`v7.2` タグ + パッチ 28 本)
 - ブートローダ: 純正 U-Boot 2011.06 で起動するのが既定経路。別途、U-Boot **v2026.07** への移植パッチも同梱 (実機未検証、下記参照)
 
+## ボードモデル (実機写真から起こした図)
+
+![DSM-232 ボードモデル (表裏)](docs/images/board-model.svg)
+
+実機 (REV.A1、基板シルク `21516DS232A11A1`) を分解して撮影した写真から起こしたモデル図です。写真で読み取れた刻印・シルクはそのまま反映し、推定には ※印を付けました。写真そのものではなく図にしたのは、シリアル番号・MAC アドレス等の個体情報を公開リポジトリに載せないためです。
+
+写真から同定できた主な搭載部品:
+
+| 部品 | 刻印 / シルク | 備考 |
+|---|---|---|
+| SoC | CAVIUM ロゴ (BGA、基板中央) | CNC1800L |
+| DDR3 | Samsung `K4B2G1646E` 系 (U200) | 2Gbit = 256MB。カーネル設定の 256MB と一致 |
+| NAND | Toshiba `TC58NVG0S3E` (U301、裏面 TSOP) | 128MiB。型番は起動ログでも確認済み ([docs/FLASH_SUPPORT.md](docs/FLASH_SUPPORT.md)) |
+| Wi-Fi | シールドモジュール (U506) | AR6003 (SDIO)。裏面下部に PCB アンテナパターン部あり (推定) |
+| 周辺 IC | U501 (QFP、HDMI 側) | 役割は未確認 |
+| デバッグ候補 | J16 (4穴パッド、SoC 左脇、TP6 / TP9 / TP10 併記) | UART 端子の候補 (写真からの推定、要実機確認) |
+| SPI 候補 | U302 (SOIC-8、裏面) | SPI フラッシュの候補 (写真からの推定) |
+
 ## ハードウェア
 
 | 項目 | 内容 |
@@ -154,6 +172,7 @@ U-Boot `v2026.07` タグにパッチ 2 本を適用し、`u-boot.bin` (約 190KB
 
 | ドキュメント | 内容 |
 |---|---|
+| [docs/images/board-model.svg](docs/images/board-model.svg) | 実機写真から起こしたボードモデル図 (表裏・主要部品の同定メモ付き) |
 | [docs/USB_BOOT_ALPINE.md](docs/USB_BOOT_ALPINE.md) | USB 起動の根拠・手順・解像度変更・判定基準と切り分け |
 | [docs/LINUX_PERIPHERALS.md](docs/LINUX_PERIPHERALS.md) | Linux 側の周辺機能 (reboot / USB / Wi-Fi / HDMI / GPIO / CEC / kexec) と未対応項目 |
 | [docs/FLASH_SUPPORT.md](docs/FLASH_SUPPORT.md) | SPI / NAND 対応と、ECC 旧方式・新方式の互換性問題 |
