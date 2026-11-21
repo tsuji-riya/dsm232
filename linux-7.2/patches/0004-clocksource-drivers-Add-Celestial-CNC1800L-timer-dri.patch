@@ -1,0 +1,297 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tsuji Riya <tsuji.riya@gmail.com>
+Date: Sat, 21 Nov 2026 03:14:18 +0000
+Subject: [PATCH 04/28] clocksource/drivers: Add Celestial CNC1800L timer
+ driver
+
+Add a driver for the AHB clock event timer (94.5MHz) and the APB clock
+source and sched_clock timer (47.25MHz) of the CNC1800L.
+
+Register addresses and IRQ numbers come from the vendor 2.6.32 GPL BSP.
+The APB timer is only read with 16 bit accesses, as the vendor code
+does, so the DesignWare APB timer driver (32 bit accesses) is not used.
+
+Signed-off-by: Tsuji Riya <tsuji.riya@gmail.com>
+---
+ MAINTAINERS                          |   2 +
+ drivers/clocksource/Kconfig          |  11 ++
+ drivers/clocksource/Makefile         |   1 +
+ drivers/clocksource/timer-cnc1800l.c | 216 +++++++++++++++++++++++++++
+ 4 files changed, 230 insertions(+)
+ create mode 100644 drivers/clocksource/timer-cnc1800l.c
+
+diff --git a/MAINTAINERS b/MAINTAINERS
+index ad4002b54..c93f2d61a 100644
+--- a/MAINTAINERS
++++ b/MAINTAINERS
+@@ -2751,12 +2751,14 @@ S:	Maintained
+ F:	drivers/net/ethernet/cavium/thunder/
+ 
+ 
++
+ ARM/CELESTIAL CNC1800L SOC SUPPORT
+ M:	Tsuji Riya <tsuji.riya@gmail.com>
+ L:	linux-arm-kernel@lists.infradead.org (moderated for non-subscribers)
+ S:	Maintained
+ F:	Documentation/devicetree/bindings/arm/celestial.yaml
+ F:	Documentation/devicetree/bindings/timer/celestial,cnc1800l-timer.yaml
++F:	drivers/clocksource/timer-cnc1800l.c
+ 
+ ARM/CIRRUS LOGIC BK3 MACHINE SUPPORT
+ M:	Lukasz Majewski <lukma@denx.de>
+diff --git a/drivers/clocksource/Kconfig b/drivers/clocksource/Kconfig
+index d9c76dd44..661cf1296 100644
+--- a/drivers/clocksource/Kconfig
++++ b/drivers/clocksource/Kconfig
+@@ -63,6 +63,17 @@ config OMAP_DM_TIMER
+ 	help
+ 	  Enables the support for the TI dual-mode timer driver.
+ 
++config CNC1800L_TIMER
++	bool "Celestial CNC1800L timer driver" if COMPILE_TEST
++	depends on HAS_IOMEM
++	select TIMER_OF
++	select SCHED_CLOCK
++	help
++	  Enables support for the AHB clock event timer and the APB
++	  free-running clock source timer found in the Celestial
++	  (Cavium) CNC1800L SoC. The APB timer also provides the
++	  sched_clock. Selected by ARCH_CELESTIAL.
++
+ config DW_APB_TIMER
+ 	bool "DW APB timer driver" if COMPILE_TEST
+ 	help
+diff --git a/drivers/clocksource/Makefile b/drivers/clocksource/Makefile
+index b46376af6..7585d6f87 100644
+--- a/drivers/clocksource/Makefile
++++ b/drivers/clocksource/Makefile
+@@ -20,6 +20,7 @@ obj-$(CONFIG_DIGICOLOR_TIMER)	+= timer-digicolor.o
+ obj-$(CONFIG_ECONET_EN751221_TIMER)	+= timer-econet-en751221.o
+ obj-$(CONFIG_OMAP_DM_TIMER)	+= timer-ti-dm.o
+ obj-$(CONFIG_OMAP_DM_SYSTIMER)	+= timer-ti-dm-systimer.o
++obj-$(CONFIG_CNC1800L_TIMER)	+= timer-cnc1800l.o
+ obj-$(CONFIG_DW_APB_TIMER)	+= dw_apb_timer.o
+ obj-$(CONFIG_DW_APB_TIMER_OF)	+= dw_apb_timer_of.o
+ obj-$(CONFIG_FTTMR010_TIMER)	+= timer-fttmr010.o
+diff --git a/drivers/clocksource/timer-cnc1800l.c b/drivers/clocksource/timer-cnc1800l.c
+new file mode 100644
+index 000000000..a7c8db96c
+--- /dev/null
++++ b/drivers/clocksource/timer-cnc1800l.c
+@@ -0,0 +1,216 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Celestial (Cavium) CNC1800L timers
++ *
++ * The SoC provides an AHB timer block used as clock event device and a
++ * Designware-like APB timer used as a free running clock source.
++ *
++ * Both are described by one DT node each:
++ *   "celestial,cnc1800l-ahb-timer": clock event, one-shot / periodic
++ *   "celestial,cnc1800l-apb-timer": clock source, 32 bit down counter
++ */
++
++#include <linux/clk.h>
++#include <linux/clockchips.h>
++#include <linux/clocksource.h>
++#include <linux/init.h>
++#include <linux/interrupt.h>
++#include <linux/io.h>
++#include <linux/of.h>
++#include <linux/of_address.h>
++#include <linux/sched_clock.h>
++
++#include "timer-of.h"
++
++/* AHB timer */
++#define AHB_TIMER_PRE_LOAD_0	0x00
++#define AHB_TIMER_THRESHOLD_0	0x08
++#define AHB_TIMER_MODE		0x10
++#define AHB_TIMER_INTR_EN	0x14
++#define AHB_TIMER_INTR_CLR	0x18
++#define AHB_TIMER_ENABLE	0x1c
++
++#define AHB_TIMER_MODE_ONESHOT	0x1
++#define AHB_TIMER_MODE_FREERUN	0x0
++
++/* APB timer (single Designware-style timer, 16 bit bus accesses) */
++#define APB_TIMER_LOADCOUNT	0x00
++#define APB_TIMER_CURRENT	0x04
++#define APB_TIMER_CTRL		0x08
++#define APB_TIMER_CTRL_ENABLE	BIT(0)
++#define APB_TIMER_CTRL_PERIODIC	BIT(1)
++#define APB_TIMER_CTRL_INTMASK	BIT(2)
++
++static void __iomem *cnc1800l_apb_base;
++
++static void cnc1800l_ahb_stop(struct timer_of *to)
++{
++	void __iomem *base = timer_of_base(to);
++
++	writel(0, base + AHB_TIMER_ENABLE);
++	writel(0x7, base + AHB_TIMER_INTR_CLR);
++	writel(0, base + AHB_TIMER_INTR_CLR);
++}
++
++static int cnc1800l_ahb_shutdown(struct clock_event_device *ce)
++{
++	cnc1800l_ahb_stop(to_timer_of(ce));
++	return 0;
++}
++
++static int cnc1800l_ahb_set_periodic(struct clock_event_device *ce)
++{
++	struct timer_of *to = to_timer_of(ce);
++	void __iomem *base = timer_of_base(to);
++
++	cnc1800l_ahb_stop(to);
++	writel(timer_of_period(to), base + AHB_TIMER_THRESHOLD_0);
++	writel(0, base + AHB_TIMER_PRE_LOAD_0);
++	writel(AHB_TIMER_MODE_FREERUN, base + AHB_TIMER_MODE);
++	writel(1, base + AHB_TIMER_INTR_EN);
++	writel(1, base + AHB_TIMER_ENABLE);
++	return 0;
++}
++
++static int cnc1800l_ahb_next_event(unsigned long delta,
++				   struct clock_event_device *ce)
++{
++	struct timer_of *to = to_timer_of(ce);
++	void __iomem *base = timer_of_base(to);
++
++	cnc1800l_ahb_stop(to);
++	writel(delta, base + AHB_TIMER_THRESHOLD_0);
++	writel(0, base + AHB_TIMER_PRE_LOAD_0);
++	writel(AHB_TIMER_MODE_ONESHOT, base + AHB_TIMER_MODE);
++	writel(1, base + AHB_TIMER_INTR_EN);
++	writel(1, base + AHB_TIMER_ENABLE);
++	return 0;
++}
++
++static irqreturn_t cnc1800l_ahb_irq(int irq, void *dev_id)
++{
++	struct clock_event_device *ce = dev_id;
++	void __iomem *base = timer_of_base(to_timer_of(ce));
++
++	writel(1, base + AHB_TIMER_INTR_CLR);
++	writel(0, base + AHB_TIMER_INTR_CLR);
++	ce->event_handler(ce);
++	return IRQ_HANDLED;
++}
++
++static struct timer_of cnc1800l_ahb_to = {
++	.flags = TIMER_OF_IRQ | TIMER_OF_BASE | TIMER_OF_CLOCK,
++	.clkevt = {
++		.name			= "cnc1800l-ahb-timer",
++		.rating			= 300,
++		.cpumask		= cpu_possible_mask,
++		.features		= CLOCK_EVT_FEAT_PERIODIC |
++					  CLOCK_EVT_FEAT_ONESHOT,
++		.set_state_shutdown	= cnc1800l_ahb_shutdown,
++		.set_state_periodic	= cnc1800l_ahb_set_periodic,
++		.set_state_oneshot	= cnc1800l_ahb_shutdown,
++		.tick_resume		= cnc1800l_ahb_shutdown,
++		.set_next_event		= cnc1800l_ahb_next_event,
++	},
++	.of_irq = {
++		.handler = cnc1800l_ahb_irq,
++		.flags   = IRQF_TIMER | IRQF_IRQPOLL,
++	},
++};
++
++static int __init cnc1800l_ahb_timer_init(struct device_node *np)
++{
++	int ret;
++
++	ret = timer_of_init(np, &cnc1800l_ahb_to);
++	if (ret)
++		return ret;
++
++	cnc1800l_ahb_stop(&cnc1800l_ahb_to);
++	clockevents_config_and_register(&cnc1800l_ahb_to.clkevt,
++					timer_of_rate(&cnc1800l_ahb_to),
++					0xf, 0xfffffffc);
++	return 0;
++}
++
++TIMER_OF_DECLARE(cnc1800l_ahb, "celestial,cnc1800l-ahb-timer",
++		 cnc1800l_ahb_timer_init);
++
++/*
++ * The APB timer registers are only safe to access with 16 bit accesses.
++ * Read the current value as two halves, retrying if the high half rolled.
++ */
++static u32 cnc1800l_apb_read_raw(void)
++{
++	u16 hi, lo, hi2;
++
++	hi = readw_relaxed(cnc1800l_apb_base + APB_TIMER_CURRENT + 2);
++	lo = readw_relaxed(cnc1800l_apb_base + APB_TIMER_CURRENT);
++	hi2 = readw_relaxed(cnc1800l_apb_base + APB_TIMER_CURRENT + 2);
++	if (hi2 != hi)
++		lo = readw_relaxed(cnc1800l_apb_base + APB_TIMER_CURRENT);
++
++	return ((u32)hi2 << 16) | lo;
++}
++
++/* The counter counts down from 0xffffffff. */
++static u64 notrace cnc1800l_apb_sched_clock_read(void)
++{
++	return 0xffffffff - cnc1800l_apb_read_raw();
++}
++
++static u64 cnc1800l_apb_read(struct clocksource *cs)
++{
++	return cnc1800l_apb_sched_clock_read();
++}
++
++static struct clocksource cnc1800l_apb_cs = {
++	.name	= "cnc1800l-apb-timer",
++	.rating	= 300,
++	.read	= cnc1800l_apb_read,
++	.mask	= CLOCKSOURCE_MASK(32),
++	.flags	= CLOCK_SOURCE_IS_CONTINUOUS,
++};
++
++static int __init cnc1800l_apb_timer_init(struct device_node *np)
++{
++	struct clk *clk;
++	unsigned long rate;
++	u32 ctrl;
++	int ret;
++
++	cnc1800l_apb_base = of_iomap(np, 0);
++	if (!cnc1800l_apb_base)
++		return -ENXIO;
++
++	clk = of_clk_get(np, 0);
++	if (IS_ERR(clk)) {
++		ret = PTR_ERR(clk);
++		goto err_unmap;
++	}
++	ret = clk_prepare_enable(clk);
++	if (ret)
++		goto err_put;
++	rate = clk_get_rate(clk);
++
++	/* Program a free running 32 bit down counter. */
++	writel(0, cnc1800l_apb_base + APB_TIMER_CTRL);
++	writew(0xffff, cnc1800l_apb_base + APB_TIMER_LOADCOUNT);
++	writew(0xffff, cnc1800l_apb_base + APB_TIMER_LOADCOUNT + 2);
++	ctrl = APB_TIMER_CTRL_INTMASK;
++	writel(ctrl, cnc1800l_apb_base + APB_TIMER_CTRL);
++	writel(ctrl | APB_TIMER_CTRL_ENABLE | APB_TIMER_CTRL_PERIODIC,
++	       cnc1800l_apb_base + APB_TIMER_CTRL);
++
++	sched_clock_register(cnc1800l_apb_sched_clock_read, 32, rate);
++	return clocksource_register_hz(&cnc1800l_apb_cs, rate);
++
++err_put:
++	clk_put(clk);
++err_unmap:
++	iounmap(cnc1800l_apb_base);
++	return ret;
++}
++
++TIMER_OF_DECLARE(cnc1800l_apb, "celestial,cnc1800l-apb-timer",
++		 cnc1800l_apb_timer_init);

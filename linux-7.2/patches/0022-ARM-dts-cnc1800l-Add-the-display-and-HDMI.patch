@@ -1,0 +1,53 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tsuji Riya <tsuji.riya@gmail.com>
+Date: Sat, 21 Nov 2026 03:14:22 +0000
+Subject: [PATCH 22/28] ARM: dts: cnc1800l: Add the display and HDMI
+
+Describe the display feeder and HDMI transmitter with their clocks and
+reset, and enable them on the DSM-232.
+
+Signed-off-by: Tsuji Riya <tsuji.riya@gmail.com>
+---
+ arch/arm/boot/dts/celestial/cnc1800l-dsm232.dts |  4 ++++
+ arch/arm/boot/dts/celestial/cnc1800l.dtsi       | 13 +++++++++++++
+ 2 files changed, 17 insertions(+)
+
+diff --git a/arch/arm/boot/dts/celestial/cnc1800l-dsm232.dts b/arch/arm/boot/dts/celestial/cnc1800l-dsm232.dts
+index a0ed87773..73eb2fff9 100644
+--- a/arch/arm/boot/dts/celestial/cnc1800l-dsm232.dts
++++ b/arch/arm/boot/dts/celestial/cnc1800l-dsm232.dts
+@@ -40,6 +40,10 @@ memory@0 {
+ 	};
+ };
+ 
++&display {
++	status = "okay";
++};
++
+ &ehci {
+ 	status = "okay";
+ };
+diff --git a/arch/arm/boot/dts/celestial/cnc1800l.dtsi b/arch/arm/boot/dts/celestial/cnc1800l.dtsi
+index 0030b2764..8d879ff8c 100644
+--- a/arch/arm/boot/dts/celestial/cnc1800l.dtsi
++++ b/arch/arm/boot/dts/celestial/cnc1800l.dtsi
+@@ -98,6 +98,19 @@ sdio_pins: sdio-pins {
+ 			};
+ 		};
+ 
++		/* display feeder output 0 and the HDMI transmitter */
++		display: display@b1800000 {
++			compatible = "celestial,cnc1800l-display";
++			reg = <0xb1800000 0x1000>, <0x80400000 0x2000>;
++			reg-names = "df", "hdmi";
++			clocks = <&clk CNC1800L_CLK_DISP0>, <&clk CNC1800L_CLK_HDMI_TMDS>,
++				 <&clk CNC1800L_CLK_CEC>;
++			clock-names = "disp", "tmds", "cec";
++			resets = <&rst 13>, <&rst 19>;
++			reset-names = "disp", "hdmi";
++			status = "disabled";
++		};
++
+ 		ahb_timer: timer@80270000 {
+ 			compatible = "celestial,cnc1800l-ahb-timer";
+ 			reg = <0x80270000 0x100>;

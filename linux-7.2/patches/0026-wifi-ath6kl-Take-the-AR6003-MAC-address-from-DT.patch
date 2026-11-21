@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Tsuji Riya <tsuji.riya@gmail.com>
-Date: Fri, 20 Nov 2026 06:20:01 +0000
-Subject: [PATCH 12/13] wifi: ath6kl: take the AR6003 MAC address from DT
+Date: Sat, 21 Nov 2026 03:14:23 +0000
+Subject: [PATCH 26/28] wifi: ath6kl: Take the AR6003 MAC address from DT
 
 The AR6003 firmware takes its MAC address from the board data in target
 RAM. OTP puts the address programmed in the module there, so a board
@@ -13,6 +13,8 @@ of_get_mac_address(), which also covers nvmem cells, and write it into
 the board data. The board data checksum, an XOR of its 16-bit words, is
 kept valid by XORing in the change. Without an address in DT nothing
 changes.
+
+Signed-off-by: Tsuji Riya <tsuji.riya@gmail.com>
 ---
  drivers/net/wireless/ath/ath6kl/init.c   | 41 ++++++++++++++++++++++++
  drivers/net/wireless/ath/ath6kl/target.h |  2 ++

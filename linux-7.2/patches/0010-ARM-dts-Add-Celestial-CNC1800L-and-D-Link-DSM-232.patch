@@ -1,0 +1,203 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tsuji Riya <tsuji.riya@gmail.com>
+Date: Sat, 21 Nov 2026 03:14:20 +0000
+Subject: [PATCH 10/28] ARM: dts: Add Celestial CNC1800L and D-Link DSM-232
+
+Add the CNC1800L SoC (timers, DesignWare APB interrupt controller and
+UARTs) and the DSM-232 board with a serial console.
+
+mem=137M is in the bootargs: the vendor U-Boot passes ATAG_MEM for
+256MB and ARM_ATAG_DTB_COMPAT replaces the DT memory node with it,
+which would hand the regions of the vendor firmware to Linux.
+
+Signed-off-by: Tsuji Riya <tsuji.riya@gmail.com>
+---
+ MAINTAINERS                                   |  2 +
+ arch/arm/boot/dts/Makefile                    |  1 +
+ arch/arm/boot/dts/celestial/Makefile          |  2 +
+ .../boot/dts/celestial/cnc1800l-dsm232.dts    | 34 +++++++
+ arch/arm/boot/dts/celestial/cnc1800l.dtsi     | 93 +++++++++++++++++++
+ 5 files changed, 132 insertions(+)
+ create mode 100644 arch/arm/boot/dts/celestial/Makefile
+ create mode 100644 arch/arm/boot/dts/celestial/cnc1800l-dsm232.dts
+ create mode 100644 arch/arm/boot/dts/celestial/cnc1800l.dtsi
+
+diff --git a/MAINTAINERS b/MAINTAINERS
+index 711276fd8..22d9080a2 100644
+--- a/MAINTAINERS
++++ b/MAINTAINERS
+@@ -2757,6 +2757,7 @@ F:	drivers/net/ethernet/cavium/thunder/
+ 
+ 
+ 
++
+ ARM/CELESTIAL CNC1800L SOC SUPPORT
+ M:	Tsuji Riya <tsuji.riya@gmail.com>
+ L:	linux-arm-kernel@lists.infradead.org (moderated for non-subscribers)
+@@ -2765,6 +2766,7 @@ F:	Documentation/devicetree/bindings/arm/celestial.yaml
+ F:	Documentation/devicetree/bindings/clock/celestial,cnc1800l-clk.yaml
+ F:	Documentation/devicetree/bindings/gpio/celestial,cnc1800l-gpio.yaml
+ F:	Documentation/devicetree/bindings/timer/celestial,cnc1800l-timer.yaml
++F:	arch/arm/boot/dts/celestial/
+ F:	arch/arm/mach-celestial/
+ F:	drivers/clk/clk-cnc1800l.c
+ F:	drivers/clocksource/timer-cnc1800l.c
+diff --git a/arch/arm/boot/dts/Makefile b/arch/arm/boot/dts/Makefile
+index 28fba538d..6cd3d8ddd 100644
+--- a/arch/arm/boot/dts/Makefile
++++ b/arch/arm/boot/dts/Makefile
+@@ -10,6 +10,7 @@ subdir-y += aspeed
+ subdir-y += axis
+ subdir-y += broadcom
+ subdir-y += calxeda
++subdir-y += celestial
+ subdir-y += cirrus
+ subdir-y += cnxt
+ subdir-y += gemini
+diff --git a/arch/arm/boot/dts/celestial/Makefile b/arch/arm/boot/dts/celestial/Makefile
+new file mode 100644
+index 000000000..2b7b05486
+--- /dev/null
++++ b/arch/arm/boot/dts/celestial/Makefile
+@@ -0,0 +1,2 @@
++# SPDX-License-Identifier: GPL-2.0
++dtb-$(CONFIG_ARCH_CELESTIAL) += cnc1800l-dsm232.dtb
+diff --git a/arch/arm/boot/dts/celestial/cnc1800l-dsm232.dts b/arch/arm/boot/dts/celestial/cnc1800l-dsm232.dts
+new file mode 100644
+index 000000000..bf94fdaad
+--- /dev/null
++++ b/arch/arm/boot/dts/celestial/cnc1800l-dsm232.dts
+@@ -0,0 +1,34 @@
++// SPDX-License-Identifier: GPL-2.0-only OR MIT
++/dts-v1/;
++
++#include "cnc1800l.dtsi"
++
++/ {
++	model = "D-Link DSM-232 (A1)";
++	compatible = "dlink,dsm-232-a1", "celestial,cnc1800l";
++
++	chosen {
++		/*
++		 * mem= is needed because the vendor U-Boot passes ATAG_MEM
++		 * (256MB), which ARM_ATAG_DTB_COMPAT copies over the memory
++		 * node below. 137M = 0x08900000.
++		 */
++		bootargs = "earlycon console=ttyS0,115200n8 mem=137M";
++		stdout-path = "serial0:115200n8";
++	};
++
++	/*
++	 * The vendor firmware reserves the top of the 256MB DRAM for the
++	 * framebuffer, video/audio buffers, ethernet, crypto and demux
++	 * (see mem_define.h, Tiga-Mini layout). Only the memory below
++	 * XPORT_REGION (0x08971000, rounded down to 1MB) is given to Linux.
++	 */
++	memory@0 {
++		device_type = "memory";
++		reg = <0x00000000 0x08900000>;
++	};
++};
++
++&uart0 {
++	status = "okay";
++};
+diff --git a/arch/arm/boot/dts/celestial/cnc1800l.dtsi b/arch/arm/boot/dts/celestial/cnc1800l.dtsi
+new file mode 100644
+index 000000000..bb40cb96a
+--- /dev/null
++++ b/arch/arm/boot/dts/celestial/cnc1800l.dtsi
+@@ -0,0 +1,93 @@
++// SPDX-License-Identifier: GPL-2.0-only OR MIT
++/*
++ * Celestial (Cavium) CNC1800L SoC
++ *
++ * Register addresses and interrupt numbers are taken from the vendor
++ * 2.6.32 BSP (mach/cnc1800l.h, mach/irqs.h).
++ */
++
++/ {
++	compatible = "celestial,cnc1800l";
++	#address-cells = <1>;
++	#size-cells = <1>;
++
++	aliases {
++		serial0 = &uart0;
++		serial1 = &uart1;
++	};
++
++	cpus {
++		#address-cells = <1>;
++		#size-cells = <0>;
++
++		cpu@0 {
++			device_type = "cpu";
++			compatible = "arm,arm1176jzf-s";
++			reg = <0>;
++		};
++	};
++
++	/* PCLK, drives the UARTs and the APB timer */
++	pclk: clock-pclk {
++		compatible = "fixed-clock";
++		#clock-cells = <0>;
++		clock-frequency = <47250000>;
++	};
++
++	/* Clock of the AHB timer block */
++	timer_clk: clock-timer {
++		compatible = "fixed-clock";
++		#clock-cells = <0>;
++		clock-frequency = <94500000>;
++	};
++
++	soc {
++		compatible = "simple-bus";
++		#address-cells = <1>;
++		#size-cells = <1>;
++		ranges;
++
++		intc: interrupt-controller@80140000 {
++			compatible = "snps,dw-apb-ictl";
++			reg = <0x80140000 0x1000>;
++			interrupt-controller;
++			#interrupt-cells = <1>;
++		};
++
++		ahb_timer: timer@80270000 {
++			compatible = "celestial,cnc1800l-ahb-timer";
++			reg = <0x80270000 0x100>;
++			interrupt-parent = <&intc>;
++			interrupts = <4>;
++			clocks = <&timer_clk>;
++		};
++
++		apb_timer: timer@801e2000 {
++			compatible = "celestial,cnc1800l-apb-timer";
++			reg = <0x801e2000 0x100>;
++			clocks = <&pclk>;
++		};
++
++		uart0: serial@801f1000 {
++			compatible = "snps,dw-apb-uart";
++			reg = <0x801f1000 0x100>;
++			interrupt-parent = <&intc>;
++			interrupts = <12>;
++			reg-shift = <2>;
++			reg-io-width = <4>;
++			clocks = <&pclk>;
++			status = "disabled";
++		};
++
++		uart1: serial@801f2000 {
++			compatible = "snps,dw-apb-uart";
++			reg = <0x801f2000 0x100>;
++			interrupt-parent = <&intc>;
++			interrupts = <13>;
++			reg-shift = <2>;
++			reg-io-width = <4>;
++			clocks = <&pclk>;
++			status = "disabled";
++		};
++	};
++};

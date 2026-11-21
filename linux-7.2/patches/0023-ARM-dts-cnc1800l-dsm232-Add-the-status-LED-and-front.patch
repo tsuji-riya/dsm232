@@ -1,19 +1,17 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Tsuji Riya <tsuji.riya@gmail.com>
-Date: Fri, 20 Nov 2026 01:21:15 +0000
-Subject: [PATCH 10/13] ARM: dts: cnc1800l-dsm232: status LED and front button;
- enable kexec
+Date: Sat, 21 Nov 2026 03:14:23 +0000
+Subject: [PATCH 23/28] ARM: dts: cnc1800l-dsm232: Add the status LED and front
+ button
 
 The vendor U-Boot turns the LED on with "gpio write 2 1"; the vendor
 csgpio.c reads the front button on GPIO 9, 0 while pressed. The button
 gives KEY_PROG1.
 
-kexec lets a test kernel be started from a running system, so a kernel
-that does not come up is left by a power cycle.
+Signed-off-by: Tsuji Riya <tsuji.riya@gmail.com>
 ---
  .../boot/dts/celestial/cnc1800l-dsm232.dts    | 24 +++++++++++++++++++
- arch/arm/configs/cnc1800l_defconfig           |  6 +++++
- 2 files changed, 30 insertions(+)
+ 1 file changed, 24 insertions(+)
 
 diff --git a/arch/arm/boot/dts/celestial/cnc1800l-dsm232.dts b/arch/arm/boot/dts/celestial/cnc1800l-dsm232.dts
 index 73eb2fff9..5662e9638 100644
@@ -57,20 +55,3 @@ index 73eb2fff9..5662e9638 100644
  	/*
  	 * The vendor firmware reserves the top of the 256MB DRAM for the
  	 * framebuffer, video/audio buffers, ethernet, crypto and demux
-diff --git a/arch/arm/configs/cnc1800l_defconfig b/arch/arm/configs/cnc1800l_defconfig
-index 6cde38220..598e204e3 100644
---- a/arch/arm/configs/cnc1800l_defconfig
-+++ b/arch/arm/configs/cnc1800l_defconfig
-@@ -70,6 +70,12 @@ CONFIG_MMC_DW=y
- CONFIG_MMC_DW_PLTFM=y
- CONFIG_FW_LOADER_COMPRESS=y
- CONFIG_FW_LOADER_COMPRESS_ZSTD=y
-+CONFIG_KEXEC=y
-+CONFIG_NEW_LEDS=y
-+CONFIG_LEDS_CLASS=y
-+CONFIG_LEDS_GPIO=y
-+CONFIG_INPUT_EVDEV=y
-+CONFIG_KEYBOARD_GPIO=y
- CONFIG_WATCHDOG=y
- CONFIG_DW_WATCHDOG=y
- CONFIG_RESET_CONTROLLER=y

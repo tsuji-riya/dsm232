@@ -1,0 +1,219 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tsuji Riya <tsuji.riya@gmail.com>
+Date: Sat, 21 Nov 2026 03:14:21 +0000
+Subject: [PATCH 14/28] ARM: dts: cnc1800l: Add the NAND and SPI flash
+
+The DSM-232 DTS describes the Toshiba TC58NVG0S3E (128MiB) with the
+layout of the vendor firmware, all read-only, and scans the factory bad
+block markers instead of using an on-flash BBT. A second DTS uses
+software BCH-4 over the whole, reformatted chip.
+
+Describe the DesignWare SSI (16 bit register accesses) with a spi-nor
+flash in mode 3 at about 12MHz as the vendor U-Boot does (in mode 0 the
+native chip select is released between frames), exposing only the
+miniloader and U-Boot environment, read-only.
+
+Signed-off-by: Tsuji Riya <tsuji.riya@gmail.com>
+---
+ arch/arm/boot/dts/celestial/Makefile          |  2 +-
+ .../dts/celestial/cnc1800l-dsm232-newecc.dts  | 26 +++++
+ .../boot/dts/celestial/cnc1800l-dsm232.dts    | 97 +++++++++++++++++++
+ arch/arm/boot/dts/celestial/cnc1800l.dtsi     | 32 ++++++
+ 4 files changed, 156 insertions(+), 1 deletion(-)
+ create mode 100644 arch/arm/boot/dts/celestial/cnc1800l-dsm232-newecc.dts
+
+diff --git a/arch/arm/boot/dts/celestial/Makefile b/arch/arm/boot/dts/celestial/Makefile
+index 2b7b05486..e5753ae5c 100644
+--- a/arch/arm/boot/dts/celestial/Makefile
++++ b/arch/arm/boot/dts/celestial/Makefile
+@@ -1,2 +1,2 @@
+ # SPDX-License-Identifier: GPL-2.0
+-dtb-$(CONFIG_ARCH_CELESTIAL) += cnc1800l-dsm232.dtb
++dtb-$(CONFIG_ARCH_CELESTIAL) += cnc1800l-dsm232.dtb cnc1800l-dsm232-newecc.dtb
+diff --git a/arch/arm/boot/dts/celestial/cnc1800l-dsm232-newecc.dts b/arch/arm/boot/dts/celestial/cnc1800l-dsm232-newecc.dts
+new file mode 100644
+index 000000000..809597c6e
+--- /dev/null
++++ b/arch/arm/boot/dts/celestial/cnc1800l-dsm232-newecc.dts
+@@ -0,0 +1,26 @@
++// SPDX-License-Identifier: GPL-2.0-only OR MIT
++/*
++ * DSM-232 with the generic (software BCH) NAND ECC instead of the SoC
++ * 1-bit Hamming engine.
++ *
++ * WARNING: the on-flash format is NOT compatible with the vendor firmware,
++ * the miniloader and the vendor U-Boot. Use it only when the whole NAND is
++ * reformatted and nothing in NAND is read by the boot ROM / miniloader.
++ */
++#include "cnc1800l-dsm232.dts"
++
++/ {
++	model = "D-Link DSM-232 (A1), generic NAND ECC";
++};
++
++&nand {
++	nand@0 {
++		nand-ecc-mode = "soft";
++		nand-ecc-algo = "bch";
++		nand-ecc-strength = <4>;
++		nand-ecc-step-size = <512>;
++		/* the whole chip is reformatted: one writable device, BBT on flash */
++		nand-on-flash-bbt;
++		/delete-node/ partitions;
++	};
++};
+diff --git a/arch/arm/boot/dts/celestial/cnc1800l-dsm232.dts b/arch/arm/boot/dts/celestial/cnc1800l-dsm232.dts
+index bf94fdaad..e71afce30 100644
+--- a/arch/arm/boot/dts/celestial/cnc1800l-dsm232.dts
++++ b/arch/arm/boot/dts/celestial/cnc1800l-dsm232.dts
+@@ -32,3 +32,100 @@ memory@0 {
+ &uart0 {
+ 	status = "okay";
+ };
++
++&spi0 {
++	status = "okay";
++
++	flash@0 {
++		compatible = "jedec,spi-nor";
++		reg = <0>;
++		/*
++		 * Same as the vendor U-Boot (CTRLR0 = 0xc7, BAUDR = 8): mode 3,
++		 * 94.5MHz / 8. In mode 0 the native chip select is released
++		 * between frames and the flash only answers 0xff.
++		 */
++		spi-cpol;
++		spi-cpha;
++		spi-max-frequency = <12000000>;
++		m25p,fast-read;
++
++		partitions {
++			compatible = "fixed-partitions";
++			#address-cells = <1>;
++			#size-cells = <1>;
++
++			/*
++			 * Miniloader + U-Boot env (0xc000) and a second copy at
++			 * 0x10000, as dumped. Boot-critical: read-only, and only
++			 * this range is exposed.
++			 */
++			partition@0 {
++				label = "miniloader";
++				reg = <0x00000000 0x00020000>;
++				read-only;
++			};
++		};
++	};
++};
++
++&nand {
++	status = "okay";
++
++	nand@0 {
++		reg = <0>;
++
++		/*
++		 * LEGACY ECC (default): SoC 1-bit Hamming / 512 bytes, the
++		 * vendor on-flash format. Required for every partition that
++		 * the miniloader / vendor boot loaders read, and keeps
++		 * existing flash contents readable.
++		 *
++		 * No nand-on-flash-bbt: if Linux did not recognise the vendor
++		 * table it would write a new one over the last blocks. Bad
++		 * blocks are found by scanning the factory markers instead.
++		 */
++
++		partitions {
++			compatible = "fixed-partitions";
++			#address-cells = <1>;
++			#size-cells = <1>;
++
++			/*
++			 * Toshiba TC58NVG0S3E, 128MiB. Layout measured on a
++			 * dump of the vendor firmware and its U-Boot env
++			 * (show_logo, FACT_IMG, IMG/WORK_IMG, IMG_SIZE).
++			 * Read-only so that the vendor firmware stays bootable.
++			 */
++			partition@0 {
++				label = "bootloader";	/* U-Boot at 0x20000 and 0xa0000 */
++				reg = <0x00000000 0x00200000>;
++				read-only;
++			};
++			partition@200000 {
++				label = "splash";
++				reg = <0x00200000 0x00200000>;
++				read-only;
++			};
++			partition@400000 {
++				label = "factory";
++				reg = <0x00400000 0x02000000>;
++				read-only;
++			};
++			partition@2400000 {
++				label = "firmware";
++				reg = <0x02400000 0x02000000>;
++				read-only;
++			};
++			partition@4400000 {
++				label = "data";		/* JFFS2 */
++				reg = <0x04400000 0x03b80000>;
++				read-only;
++			};
++			partition@7f80000 {
++				label = "bbt";
++				reg = <0x07f80000 0x00080000>;
++				read-only;
++			};
++		};
++	};
++};
+diff --git a/arch/arm/boot/dts/celestial/cnc1800l.dtsi b/arch/arm/boot/dts/celestial/cnc1800l.dtsi
+index bb40cb96a..7a99f7eb6 100644
+--- a/arch/arm/boot/dts/celestial/cnc1800l.dtsi
++++ b/arch/arm/boot/dts/celestial/cnc1800l.dtsi
+@@ -41,6 +41,13 @@ timer_clk: clock-timer {
+ 		clock-frequency = <94500000>;
+ 	};
+ 
++	/* SPI controller clock (AHB2_SPI_TCLK) */
++	spi_clk: clock-spi {
++		compatible = "fixed-clock";
++		#clock-cells = <0>;
++		clock-frequency = <94500000>;
++	};
++
+ 	soc {
+ 		compatible = "simple-bus";
+ 		#address-cells = <1>;
+@@ -68,6 +75,31 @@ apb_timer: timer@801e2000 {
+ 			clocks = <&pclk>;
+ 		};
+ 
++		/*
++		 * The SPI controller is a Designware SSI whose registers are
++		 * accessed with 16 bit cycles by the vendor driver.
++		 */
++		spi0: spi@80150000 {
++			compatible = "snps,dw-apb-ssi";
++			reg = <0x80150000 0x100>;
++			interrupt-parent = <&intc>;
++			interrupts = <11>;
++			reg-io-width = <2>;
++			clocks = <&spi_clk>;
++			num-cs = <1>;
++			#address-cells = <1>;
++			#size-cells = <0>;
++			status = "disabled";
++		};
++
++		nand: nand-controller@a4000000 {
++			compatible = "celestial,cnc1800l-nand";
++			reg = <0xa4000000 0x2000000>, <0x80100000 0x48>;
++			#address-cells = <1>;
++			#size-cells = <0>;
++			status = "disabled";
++		};
++
+ 		uart0: serial@801f1000 {
+ 			compatible = "snps,dw-apb-uart";
+ 			reg = <0x801f1000 0x100>;

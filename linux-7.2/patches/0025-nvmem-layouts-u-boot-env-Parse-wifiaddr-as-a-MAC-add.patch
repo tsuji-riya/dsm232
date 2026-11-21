@@ -1,0 +1,27 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tsuji Riya <tsuji.riya@gmail.com>
+Date: Sat, 21 Nov 2026 03:14:23 +0000
+Subject: [PATCH 25/28] nvmem: layouts: u-boot-env: Parse wifiaddr as a MAC
+ address too
+
+Give "wifiaddr" the same post-processing as "ethaddr", so that a Wi-Fi
+node can take it as its mac-address nvmem cell.
+
+Signed-off-by: Tsuji Riya <tsuji.riya@gmail.com>
+---
+ drivers/nvmem/layouts/u-boot-env.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/nvmem/layouts/u-boot-env.c b/drivers/nvmem/layouts/u-boot-env.c
+index f27f387bb..a3e649cac 100644
+--- a/drivers/nvmem/layouts/u-boot-env.c
++++ b/drivers/nvmem/layouts/u-boot-env.c
+@@ -75,7 +75,7 @@ static int u_boot_env_parse_cells(struct device *dev, struct nvmem_device *nvmem
+ 		info.offset = data_offset + value - data;
+ 		info.bytes = strlen(value);
+ 		info.np = of_get_child_by_name(dev->of_node, info.name);
+-		if (!strcmp(var, "ethaddr")) {
++		if (!strcmp(var, "ethaddr") || !strcmp(var, "wifiaddr")) {
+ 			info.raw_len = strlen(value);
+ 			info.bytes = ETH_ALEN;
+ 			info.read_post_process = u_boot_env_read_post_process_ethaddr;

@@ -1,0 +1,36 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tsuji Riya <tsuji.riya@gmail.com>
+Date: Sat, 21 Nov 2026 03:14:23 +0000
+Subject: [PATCH 24/28] dt-bindings: nvmem: u-boot,env: Add wifiaddr
+
+Some boot loaders keep the Wi-Fi MAC address in a "wifiaddr" variable
+next to "ethaddr" (the D-Link DSM-232 vendor U-Boot does). Describe it
+like ethaddr, so that a Wi-Fi node can take it as its mac-address
+nvmem cell.
+
+Signed-off-by: Tsuji Riya <tsuji.riya@gmail.com>
+---
+ .../devicetree/bindings/nvmem/layouts/u-boot,env.yaml  | 10 ++++++++++
+ 1 file changed, 10 insertions(+)
+
+diff --git a/Documentation/devicetree/bindings/nvmem/layouts/u-boot,env.yaml b/Documentation/devicetree/bindings/nvmem/layouts/u-boot,env.yaml
+index e9e75c38b..a598a7640 100644
+--- a/Documentation/devicetree/bindings/nvmem/layouts/u-boot,env.yaml
++++ b/Documentation/devicetree/bindings/nvmem/layouts/u-boot,env.yaml
+@@ -62,6 +62,16 @@ properties:
+         description: The first argument is a MAC address offset.
+         const: 1
+ 
++  wifiaddr:
++    type: object
++    description: Wi-Fi interface MAC address.
++    additionalProperties: false
++
++    properties:
++      "#nvmem-cell-cells":
++        description: The first argument is a MAC address offset.
++        const: 1
++
+ allOf:
+   - if:
+       properties:

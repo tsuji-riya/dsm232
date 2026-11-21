@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Tsuji Riya <tsuji.riya@gmail.com>
-Date: Fri, 20 Nov 2026 01:21:14 +0000
-Subject: [PATCH 06/13] ARM: dts: cnc1800l: watchdog and restart through dw_wdt
+Date: Sat, 21 Nov 2026 03:14:21 +0000
+Subject: [PATCH 17/28] ARM: dts: cnc1800l: Add the watchdog
 
 Reboot hung with "Reboot failed -- System halted": nothing could reset
 the SoC. The vendor watchdog driver (cnc18xx_wdt.c) accesses the
@@ -11,10 +11,11 @@ return 0 in the upper half, which only shortens what get_timeleft sees.
 
 There is no power-off control in the vendor BSP, so poweroff stays a
 halt.
+
+Signed-off-by: Tsuji Riya <tsuji.riya@gmail.com>
 ---
  arch/arm/boot/dts/celestial/cnc1800l.dtsi | 7 +++++++
- arch/arm/configs/cnc1800l_defconfig       | 2 ++
- 2 files changed, 9 insertions(+)
+ 1 file changed, 7 insertions(+)
 
 diff --git a/arch/arm/boot/dts/celestial/cnc1800l.dtsi b/arch/arm/boot/dts/celestial/cnc1800l.dtsi
 index c564bbfaf..848001248 100644
@@ -34,16 +35,3 @@ index c564bbfaf..848001248 100644
  		gpio: gpio@80260000 {
  			compatible = "celestial,cnc1800l-gpio";
  			reg = <0x80260000 0x100>;
-diff --git a/arch/arm/configs/cnc1800l_defconfig b/arch/arm/configs/cnc1800l_defconfig
-index 387d67a96..b17d3579b 100644
---- a/arch/arm/configs/cnc1800l_defconfig
-+++ b/arch/arm/configs/cnc1800l_defconfig
-@@ -38,6 +38,8 @@ CONFIG_MTD_UBI=y
- CONFIG_UBIFS_FS=y
- CONFIG_VFP=y
- CONFIG_GPIOLIB=y
-+CONFIG_WATCHDOG=y
-+CONFIG_DW_WATCHDOG=y
- CONFIG_RESET_CONTROLLER=y
- CONFIG_RESET_SIMPLE=y
- CONFIG_PINCTRL=y

@@ -1,0 +1,67 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tsuji Riya <tsuji.riya@gmail.com>
+Date: Sat, 21 Nov 2026 03:14:18 +0000
+Subject: [PATCH 05/28] ARM: Add Celestial CNC1800L platform
+
+The CNC1800L runs on the generic DT machine and needs no C code: add
+ARCH_CELESTIAL for ARMv6 multiplatform, which selects the DesignWare
+APB interrupt controller and the CNC1800L timer.
+
+Signed-off-by: Tsuji Riya <tsuji.riya@gmail.com>
+---
+ MAINTAINERS                     |  2 ++
+ arch/arm/Kconfig                |  2 ++
+ arch/arm/mach-celestial/Kconfig | 12 ++++++++++++
+ 3 files changed, 16 insertions(+)
+ create mode 100644 arch/arm/mach-celestial/Kconfig
+
+diff --git a/MAINTAINERS b/MAINTAINERS
+index c93f2d61a..157574bde 100644
+--- a/MAINTAINERS
++++ b/MAINTAINERS
+@@ -2752,12 +2752,14 @@ F:	drivers/net/ethernet/cavium/thunder/
+ 
+ 
+ 
++
+ ARM/CELESTIAL CNC1800L SOC SUPPORT
+ M:	Tsuji Riya <tsuji.riya@gmail.com>
+ L:	linux-arm-kernel@lists.infradead.org (moderated for non-subscribers)
+ S:	Maintained
+ F:	Documentation/devicetree/bindings/arm/celestial.yaml
+ F:	Documentation/devicetree/bindings/timer/celestial,cnc1800l-timer.yaml
++F:	arch/arm/mach-celestial/
+ F:	drivers/clocksource/timer-cnc1800l.c
+ 
+ ARM/CIRRUS LOGIC BK3 MACHINE SUPPORT
+diff --git a/arch/arm/Kconfig b/arch/arm/Kconfig
+index 9187240a0..7c1f779ae 100644
+--- a/arch/arm/Kconfig
++++ b/arch/arm/Kconfig
+@@ -377,6 +377,8 @@ source "arch/arm/mach-berlin/Kconfig"
+ 
+ source "arch/arm/mach-clps711x/Kconfig"
+ 
++source "arch/arm/mach-celestial/Kconfig"
++
+ source "arch/arm/mach-davinci/Kconfig"
+ 
+ source "arch/arm/mach-digicolor/Kconfig"
+diff --git a/arch/arm/mach-celestial/Kconfig b/arch/arm/mach-celestial/Kconfig
+new file mode 100644
+index 000000000..a5bbcc224
+--- /dev/null
++++ b/arch/arm/mach-celestial/Kconfig
+@@ -0,0 +1,12 @@
++# SPDX-License-Identifier: GPL-2.0-only
++config ARCH_CELESTIAL
++	bool "Celestial (Cavium) CNC1800L SoC"
++	depends on ARCH_MULTI_V6
++	select CPU_V6
++	select DW_APB_ICTL
++	select CNC1800L_TIMER
++	help
++	  Support for the Celestial Semiconductor (later Cavium) CNC1800L
++	  set-top-box SoC, an ARM1176 with DesignWare interrupt controller,
++	  UARTs, SPI, SDIO and watchdog, EHCI/OHCI, a NAND controller and an
++	  HDMI display, as found in the D-Link DSM-232 media player.

@@ -1,0 +1,27 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tsuji Riya <tsuji.riya@gmail.com>
+Date: Sat, 21 Nov 2026 03:14:17 +0000
+Subject: [PATCH 01/28] dt-bindings: vendor-prefixes: Add Celestial
+ Semiconductor
+
+Celestial Semiconductor made the CNC1800L set-top-box SoC; the company
+is now part of Cavium.
+
+Signed-off-by: Tsuji Riya <tsuji.riya@gmail.com>
+---
+ Documentation/devicetree/bindings/vendor-prefixes.yaml | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/Documentation/devicetree/bindings/vendor-prefixes.yaml b/Documentation/devicetree/bindings/vendor-prefixes.yaml
+index 396044f36..a0ede666b 100644
+--- a/Documentation/devicetree/bindings/vendor-prefixes.yaml
++++ b/Documentation/devicetree/bindings/vendor-prefixes.yaml
+@@ -305,6 +305,8 @@ patternProperties:
+     description: Cadence Design Systems Inc.
+   "^cdtech,.*":
+     description: CDTech(H.K.) Electronics Limited
++  "^celestial,.*":
++    description: Celestial Semiconductor (now part of Cavium)
+   "^cellwise,.*":
+     description: CellWise Microelectronics Co., Ltd
+   "^ceva,.*":

@@ -1,10 +1,10 @@
 # Linux 側の周辺機能(reboot / USB / Wi-Fi / HDMI / GPIO / CEC)
 
-**状態**: カーネル変更は `linux-7.2/patches/0004`〜`0013`、ユーザーランドは `alpine/build.sh`・`alpine/boot.cmd`。実機で確認できたものは次のとおり。
+**状態**: カーネル変更は `linux-7.2/patches/0006`〜`0028`、ユーザーランドは `alpine/build.sh`・`alpine/boot.cmd`。実機で確認できたものは次のとおり。
 - HDMI(2026-11-20、DRM ドライバ): EDID を読み、1080p60 / 1080p50 / 720p60 / 480p / 1024x768 と、XRGB8888 / RGB565 のカラーバーが正しい色で出た。HDCP 認証は毎回 1〜2 回目で成功。
 - HDMI ホットプラグ: ケーブルの抜き差しとテレビの入力切り替えのどちらでも、画面が戻った(2026-11-01、旧実装。DRM ドライバは同じ処理)。
 - USB: 起動に使った USB メモリが `sda` として認識され、ext4 root で起動した。
-- Wi-Fi: ath6kl が AR6003 hw2.1.1 のファーム 3.2.0.144 を読み込み、`wpa_supplicant` + `udhcpc` で DHCP のアドレスを取得し、インターネットへの ping が通った。MAC は U-Boot env の `wifiaddr` になる(2026-11-20、パッチ 0011〜0013)。
+- Wi-Fi: ath6kl が AR6003 hw2.1.1 のファーム 3.2.0.144 を読み込み、`wpa_supplicant` + `udhcpc` で DHCP のアドレスを取得し、インターネットへの ping が通った。MAC は U-Boot env の `wifiaddr` になる(2026-11-20、パッチ 0024〜0027)。
   - `rfkill: Cannot open RFKILL control device` は、カーネルが RFKILL 無しでビルドされているため出るだけで、無害。
   - ping の遅延が 27〜322ms とばらついたが、`iw dev wlan0 set power_save off` で 20ms 台に安定した。そのため、カーネルの既定を省電力なしにした。
 - reboot(dw_wdt 経由)/ poweroff: `reboot` で再起動し、`poweroff` で停止した。
@@ -19,7 +19,7 @@
 
 NAND / SPI には何も書かない。read-only の設定もそのまま。
 
-## 1. reboot / poweroff(パッチ 0006)
+## 1. reboot / poweroff(パッチ 0017)
 
 ### 根拠
 - BSP `arch/arm/mach-celestial/include/mach/system.h` の `arch_reset()`: 0x801E1000 の WDT に **16bit で** TORR(+0x04/+0x06)=0、CCVR(+0x08/+0x0A)=0、CR(+0x00)=1 を書く。`uboot-2026.07/patches/0001` の `reset_cpu` と同じ手順。
@@ -37,7 +37,7 @@ NAND / SPI には何も書かない。read-only の設定もそのまま。
 | `reboot` | UART に `reboot: Restarting system` が出て、1 秒以内に純正 U-Boot のバナーが出る | `Reboot failed -- System halted` が出たら WDT が効いていない。U-Boot で `mw.w 0x801e1004 0; mw.w 0x801e1008 0; mw.w 0x801e1000 1` でリセットされるか確認 |
 | `poweroff` | `reboot: System halted` で止まる(電源 LED は点いたまま) | カーネル panic(`Attempted to kill init`)が出たら報告 |
 
-## 2. USB(パッチ 0007)
+## 2. USB(パッチ 0018)
 
 ### 根拠
 | 項目 | 値 | 出典 |
@@ -87,7 +87,7 @@ ext4 上では、`apk add` した物や設定が再起動後も残る。終了�
 - `mount | grep ' / '` が `/dev/sdX2 on / type ext4 (rw,...)` になる(USB ディスクが 1 台なら `sda2`)。
 - 適当なファイルを作って `reboot` し、残っていれば成功。
 
-## 3. Wi-Fi(パッチ 0008)
+## 3. Wi-Fi(パッチ 0019)
 
 ### 根拠
 | 項目 | 値 | 出典 |
@@ -141,7 +141,7 @@ ping -c 3 1.1.1.1
   4. `ntpd -p pool.ntp.org`
 - **時刻**: DSM-232 には RTC が無く、起動直後の時計は 1970 年になる。このままだと `apk update` が「TLS: server certificate not trusted」で失敗するため、上の自動接続で NTP を合わせている。手動でやる場合は `ntpd -q -n -p pool.ntp.org`。
 - **省電力**: カーネルの `CFG80211_DEFAULT_PS` を無効にした。実機で `iw dev wlan0 set power_save off` を実行すると、ping が 27〜322ms のばらつきから 20ms 台に安定したため。純正も同じコマンドを実行していた。
-- **MAC アドレス**(パッチ 0011〜0013): U-Boot env の `wifiaddr` を使う。
+- **MAC アドレス**(パッチ 0024〜0027): U-Boot env の `wifiaddr` を使う。
   - AR6003 は board data 中の MAC(0x16)を使うが、OTP がモジュール固有の MAC(AzureWave の `40:2c:f4:…`)で上書きする。そのため board data ファイルを書き換えても効かない(実機で確認)。mainline の ath6kl は MAC の変更(`ip link set address`)にも対応していない。
   - そこで ath6kl が OTP の実行後に、DT の `mac-address`(nvmem セル)をターゲット RAM 上の board data に書く。チェックサム(0x04、16bit ワードの XOR)は差分の XOR で保つ。
   - DT: SPI の `u-boot-env` パーティションに `nvmem-layout { compatible = "u-boot,env"; }` を置き、SDIO 関数ノード `wifi@1` が `wifiaddr` セルを指す。パーティション自体に `compatible = "u-boot,env"` を付けると、MTD の nvmem と 2 つ重なってセルが見つからない(`-ENOENT`)。
@@ -151,7 +151,7 @@ ping -c 3 1.1.1.1
   - `new ... SDIO card` が出ない(`mmc0: error -110` やタイムアウト): リセット GPIO・クロック・ピンマックスを疑う。`mount -t debugfs none /sys/kernel/debug; cat /sys/kernel/debug/gpio` と、dmesg の dw_mmc の行(`Version ID`、`FIFO depth`、`Using internal DMA controller`)を貼ってほしい。
   - ath6kl がファーム読み込みや BMI のエラーを出す: その行と `ls /lib/firmware/ath6k/AR6003/hw2.1.1/` を貼ってほしい。
 
-## 4. HDMI(DRM ドライバ、パッチ 0009)
+## 4. HDMI(DRM ドライバ、パッチ 0020〜0022)
 
 ### 根拠
 `logo 16 2 …` で純正 U-Boot が行う処理を、同じ順序と値で再現した。
@@ -250,7 +250,7 @@ SYS_CTRL1 を直した後、テレビは 1080p60 で同期するようになっ�
 - 音声は未対応(下の 8)。
 - 垂直帰線割り込み(DF IRQ 7、0x10 bit3)は使っていない。ページフリップの完了は即時に通知する。
 
-## 5. GPIO・LED・ボタン(パッチ 0004、0010)
+## 5. GPIO・LED・ボタン(パッチ 0008、0009、0015、0023)
 
 ### 根拠
 | 項目 | 値 | 出典 |
@@ -270,14 +270,14 @@ apk add evtest; evtest /dev/input/event0      # 押すと KEY_PROG1 value 1、�
 grep button /proc/interrupts
 ```
 
-## 6. クロック・リセット・ピンマックス(パッチ 0005)
+## 6. クロック・リセット・ピンマックス(パッチ 0006、0007、0016)
 - `drivers/clk/clk-cnc1800l.c`(新規): 表示 PLL(TVE PLL = 27MHz × (fb + 1) / m、設定は純正 `disp_pll_cfg[]` の 108 / 297 / 50.4 / 129.6 / 216MHz)と、表示・HDMI TMDS の分周(0x148 [11:8] / [15:12])、クロック有効ビット(0x140: 表示 bit4、TMDS bit6、音声 bit22、CEC bit26)、USB PHY bypass(0x218)。分周とゲートは汎用の clk-divider / clk-gate。番号は `include/dt-bindings/clock/celestial,cnc1800l-clk.h`。
 - 0x200 のリセット(0 = リセット)は mainline の reset-simple(`snps,dw-low-reset`)。USB = 4、表示 = 13、HDMI = 19(純正 `clock_*_reset()`)。
 - ピンマックス(0xB2110000、16bit レジスタ)は mainline の pinctrl-single。
 - machine のコード(`arch/arm/mach-celestial/*.c`)は無くなり、汎用の DT マシンで起動する。
 - 注意: CEC クロック(bit26)が止まっている間に 0x80401000 以降(CEC)を読むと、バスが止まって応答しなくなる。`devmem2` で触るときは先に CEC を有効にする(`cec-ctl --playback`)。
 
-## 7. CEC(パッチ 0009)
+## 7. CEC(パッチ 0021)
 - 送信部 +0x1000 の Silicon Image CPI(純正 `si_apiCpi.c`、レジスタは `si_cpi_regs.h` のバイトオフセットのまま)を、DRM ドライバが CEC アダプタ(`/dev/cec0`)として出す。20ms ごとにポーリングする。物理アドレスは EDID から取る。
 - 確認(`apk add v4l-utils`):
   ```

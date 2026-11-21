@@ -1,0 +1,76 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tsuji Riya <tsuji.riya@gmail.com>
+Date: Sat, 21 Nov 2026 03:14:21 +0000
+Subject: [PATCH 16/28] ARM: dts: cnc1800l: Add clocks, resets and pin mux
+
+Add the clock controller. Its reset bits are active low: describe them
+for reset-simple (snps,dw-low-reset), and the pin mux (16 bit
+registers) for pinctrl-single.
+
+Signed-off-by: Tsuji Riya <tsuji.riya@gmail.com>
+---
+ arch/arm/boot/dts/celestial/cnc1800l.dtsi | 37 +++++++++++++++++++++++
+ 1 file changed, 37 insertions(+)
+
+diff --git a/arch/arm/boot/dts/celestial/cnc1800l.dtsi b/arch/arm/boot/dts/celestial/cnc1800l.dtsi
+index b710f3297..c564bbfaf 100644
+--- a/arch/arm/boot/dts/celestial/cnc1800l.dtsi
++++ b/arch/arm/boot/dts/celestial/cnc1800l.dtsi
+@@ -6,6 +6,8 @@
+  * 2.6.32 BSP (mach/cnc1800l.h, mach/irqs.h).
+  */
+ 
++#include <dt-bindings/clock/celestial,cnc1800l-clk.h>
++
+ / {
+ 	compatible = "celestial,cnc1800l";
+ 	#address-cells = <1>;
+@@ -27,6 +29,12 @@ cpu@0 {
+ 		};
+ 	};
+ 
++	osc27m: clock-osc {
++		compatible = "fixed-clock";
++		#clock-cells = <0>;
++		clock-frequency = <27000000>;
++	};
++
+ 	/* PCLK, drives the UARTs and the APB timer */
+ 	pclk: clock-pclk {
+ 		compatible = "fixed-clock";
+@@ -61,6 +69,35 @@ intc: interrupt-controller@80140000 {
+ 			#interrupt-cells = <1>;
+ 		};
+ 
++		/* the reset bits at +0x200 are a reset controller of their own */
++		clk: clock-controller@b2100000 {
++			compatible = "celestial,cnc1800l-clk";
++			reg = <0xb2100000 0x200>, <0xb210020c 0x10>;
++			clocks = <&osc27m>;
++			#clock-cells = <1>;
++		};
++
++		/* active low, vendor clock_*_reset() */
++		rst: reset-controller@b2100200 {
++			compatible = "snps,dw-low-reset";
++			reg = <0xb2100200 0x4>;
++			#reset-cells = <1>;
++		};
++
++		/* one bit (or field) per function, 16 bit accesses as the vendor cnc1800l_mux.c */
++		pinmux: pinmux@b2110000 {
++			compatible = "pinctrl-single";
++			reg = <0xb2110000 0x30>;
++			#pinctrl-cells = <2>;
++			pinctrl-single,bit-per-mux;
++			pinctrl-single,register-width = <16>;
++			pinctrl-single,function-mask = <0x1>;
++
++			sdio_pins: sdio-pins {
++				pinctrl-single,bits = <0x24 0x1 0x1>;
++			};
++		};
++
+ 		ahb_timer: timer@80270000 {
+ 			compatible = "celestial,cnc1800l-ahb-timer";
+ 			reg = <0x80270000 0x100>;

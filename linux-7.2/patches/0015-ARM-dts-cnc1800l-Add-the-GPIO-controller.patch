@@ -1,0 +1,34 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tsuji Riya <tsuji.riya@gmail.com>
+Date: Sat, 21 Nov 2026 03:14:21 +0000
+Subject: [PATCH 15/28] ARM: dts: cnc1800l: Add the GPIO controller
+
+Describe the GPIO controller at 0x80260000 with its interrupt.
+
+Signed-off-by: Tsuji Riya <tsuji.riya@gmail.com>
+---
+ arch/arm/boot/dts/celestial/cnc1800l.dtsi | 11 +++++++++++
+ 1 file changed, 11 insertions(+)
+
+diff --git a/arch/arm/boot/dts/celestial/cnc1800l.dtsi b/arch/arm/boot/dts/celestial/cnc1800l.dtsi
+index 7a99f7eb6..b710f3297 100644
+--- a/arch/arm/boot/dts/celestial/cnc1800l.dtsi
++++ b/arch/arm/boot/dts/celestial/cnc1800l.dtsi
+@@ -100,6 +100,17 @@ nand: nand-controller@a4000000 {
+ 			status = "disabled";
+ 		};
+ 
++		gpio: gpio@80260000 {
++			compatible = "celestial,cnc1800l-gpio";
++			reg = <0x80260000 0x100>;
++			interrupt-parent = <&intc>;
++			interrupts = <6>;
++			gpio-controller;
++			#gpio-cells = <2>;
++			interrupt-controller;
++			#interrupt-cells = <2>;
++		};
++
+ 		uart0: serial@801f1000 {
+ 			compatible = "snps,dw-apb-uart";
+ 			reg = <0x801f1000 0x100>;
