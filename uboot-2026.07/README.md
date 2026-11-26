@@ -40,6 +40,29 @@ DDR・PLL・ピンマックスは **ベンダー miniloader(バイナリ)** が�
 
 ## 実機へ入れる(未実施・要注意)
 1. UART を接続し、純正 U-Boot で SPI/NAND をバックアップする。
-2. まず RAM ロード(`loadb` + `go 0x2000000`)で本 U-Boot を試す。フラッシュは書かない。
+2. まず RAM 起動(次節の `fatload` + `go 0x2000000`、または `loadb` + `go`)で本 U-Boot を試す。フラッシュは書かない。
 3. 鍵が一致した場合のみ `python3 tools/uboot_slot.py sign dump/spi.bin u-boot.bin insecure_key.pem slot.bin` を作り、**NAND 0x20000 のスロットだけ**を書く。0xA0000 の純正コピーは残す(miniloader のパラメータは dual boot=0 なので、0xA0000 へ自動で切り替わるかは未確認)。
 **NAND 0x20000 を壊すと UART 無しでは復旧不能**。SPI(miniloader)は触らない。
+
+## 純正 U-Boot から USB 経由で RAM 起動する(未実施)
+SPI/NAND に書かずに試す方法。純正 U-Boot(`dlink_U-Boot 2011.06`)の `usb`・`fatload`・`go` で、USB の FAT 第 1 パーティションに置いた `u-boot.bin` を RAM に読んでジャンプする。
+
+```
+usb start
+fatload usb 0:1 0x2000000 u-boot.bin
+dcache off
+icache off
+go 0x2000000
+```
+
+本 U-Boot も純正も 0x02000000 にリンクされているが、純正は起動時に RAM 上部へリロケーションするので、0x02000000 に読んでも実行中の純正を上書きしない。根拠は `dump/nand.bin` の 0x20000(純正 U-Boot)の逆アセンブル:
+
+| 箇所 | 内容 |
+|---|---|
+| `dram_init`(0x02037ce4) | `get_ram_size(0, 0x10000000)` で容量を検出 |
+| `board_init_f`(0x020007d0〜0x02000804) | relocaddr = ((容量 − 32MB − 16KB) を 64KB 切り下げ − 0x192a9c)を 4KB 切り下げ。その下に malloc(約 12MB)とスタック |
+| `start.S`(0x020000d4〜0x02000168) | 現在地 ≠ relocaddr ならコピーと `R_ARM_RELATIVE`/`R_ARM_ABS32` の再配置を行う |
+
+容量 256MB なら relocaddr = 0x0DE5D000(純正の使用域は概ね 0x0D25xxxx〜0x0DFFxxxx)。256MB は仮説(FB の 0x0C000000 が使えているので 192MB 以上は確実)で、実機の `bdinfo` の `relocaddr` で確認すること。128MB だった場合は 0x05E5D000 になり、0x02000000 とは衝突しないが `alpine/boot.cmd` の uInitrd 領域(0x5000000〜)と重なる。
+
+`dcache off` は必須。純正の `bootcmd` は `dcache on` を実行しており、2011.06 の `go` はキャッシュを片付けずにジャンプする。本 U-Boot の `start.S`(arm1176 の `cpu_init_crit`)はキャッシュを書き戻さずに無効化してから自分でキャッシュを有効にし直すので、純正側で書き戻しておかないと、読み込んだ `u-boot.bin` の一部が DRAM に届かないまま失われる恐れがある。
