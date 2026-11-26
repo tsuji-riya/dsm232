@@ -137,7 +137,7 @@ Linux `v7.2` タグを取得し、パッチ `0001`〜`0028` を upstream 形式 
 ./uboot-2026.07/build.sh
 ```
 
-U-Boot `v2026.07` タグにパッチ 2 本を適用し、`u-boot.bin` (約 190KB、NAND/SPI 対応版は約 347KB) を作ります。ビルド成功とシンボルのリンク確認までで、**実機ではまだ動かしていません**。内容と未検証項目は [uboot-2026.07/README.md](uboot-2026.07/README.md) を参照してください。
+U-Boot `v2026.07` タグにパッチ 2 本を適用し、`u-boot.bin` (NAND/SPI 対応で約 343KB) を作ります。ビルド成功とシンボルのリンク確認までで、**実機ではまだ動かしていません**。内容と未検証項目は [uboot-2026.07/README.md](uboot-2026.07/README.md) を参照してください。
 
 ## リポジトリ構成
 
@@ -163,6 +163,7 @@ U-Boot `v2026.07` タグにパッチ 2 本を適用し、`u-boot.bin` (約 190KB
 │   ├── display_emu/      # 純正 U-Boot の logo / hdmi.bin を Unicorn で実行し表示系を解析
 │   ├── ecc_compat/       # 純正 HW ECC と Linux 標準 Hamming の互換性を全数検査
 │   ├── mk_fwimg_app.py   # factory.img の生成
+│   ├── uboot_slot.py     # NAND の U-Boot スロット (RSA 署名) の検証・作成
 │   └── make_spi_image.sh # SPI イメージ作成補助
 ├── docs/                 # 調査・解析ドキュメント (下表)
 └── dump/                 # 実機ダンプ: spi.bin (128KiB)、nand.bin (Git LFS 管理)
@@ -186,7 +187,7 @@ U-Boot `v2026.07` タグにパッチ 2 本を適用し、`u-boot.bin` (約 190KB
 ## ⚠️ 安全上の注意
 
 - **フラッシュへは書かないのが既定です。** 本リポジトリの通常経路 (USB 起動) は NAND / SPI を一切書き換えず、電源を切れば純正 FW に戻ります。
-- **SPI の U-Boot 領域を誤って書くと、UART 無しでは復旧不能になります。** U-Boot 2026.07 を実機へ入れる作業は未実施です。試す場合は必ず先に UART を接続し、純正 U-Boot で SPI / NAND のバックアップを取ってから、フラッシュ書き込みではなく RAM ロード (`loadb` + `go 0x2000000`) で確認してください。
+- **U-Boot の格納先は SPI ではなく NAND 0x20000 (署名付きスロット) です** (SPI ダンプのパラメータブロックから判明、`tools/uboot_slot.py`)。ここや SPI の miniloader を誤って書くと、UART 無しでは復旧不能になります。U-Boot 2026.07 を実機へ入れる作業は未実施です。試す場合は必ず先に UART を接続し、純正 U-Boot で SPI / NAND のバックアップを取ってから、フラッシュ書き込みではなく RAM ロード (`loadb` + `go 0x2000000`) で確認してください。
 - **NAND の ECC 方式は 1 チップにつき 1 つだけです。** 新方式 (標準 soft BCH) は純正と非互換で全面フォーマットが必要です。miniloader が読む領域は旧方式 (HW Hamming 互換) が必須です。計算による全数検査の結果は `tools/ecc_compat/` と FLASH_SUPPORT.md にあります。
 - USB イメージの書き込み先デバイスを間違えると、ホスト側のディスクを消します。`dd` の前にデバイス名と容量を必ず確認してください。
 - `poweroff` では電源は切れません (halt 止まり)。終了は `reboot` / `poweroff` でファイルシステムを読み取り専用に戻してから AC アダプタを抜いてください。ext4 root 使用中にいきなり電源を抜かないでください。

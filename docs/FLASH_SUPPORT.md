@@ -42,7 +42,9 @@ DT のプロパティは Linux と U-Boot で**同一**(U-Boot の rawnand コ�
 | U-Boot 2026.07 (`uboot-2026.07/patches/0002-*`) | `drivers/mtd/nand/raw/cnc1800l_nand.c`(DM・旧API の `cmd_ctrl` 方式)、`designware_spi` に `reg-io-width` 対応(16bit)、DT(spi/nand/clock)、`dsm232_defconfig` と `dsm232_newecc_defconfig`(`sf`/`nand`/`mtd` コマンド有効) |
 | 検証用 | `tools/ecc_compat/` |
 
-U-Boot バイナリは旧/新とも約 347KB(`0x5FF00` = 389,888 の上限内。余裕は約 40KB)。
+U-Boot バイナリは旧/新とも約 343KB。上限は実機の miniloader パラメータの 0x7FF00(523,008 byte。GPL の `second_param.txt` の 0x5FF00 ではない)で、`CONFIG_BOARD_SIZE_LIMIT` によりビルド時に検査する。U-Boot は SPI ではなく NAND 0x20000 の署名付きスロットに置かれる(`uboot-2026.07/README.md`)。
+
+U-Boot 側は Linux の実機結果を反映済み: SPI は mode 3 / 12MHz、旧方式では on-flash BBT を使わない、mtdparts は上表の配置、env は純正と同じ SPI 0xC000 / 8KiB。
 
 ## 4. 未検証・要確認
 - NAND の CE 制御は `CEn_CFG_0` bit9 を操作(Linux は常時アサート、U-Boot は純正と同様に操作ごと)。タイミングレジスタ(CEn_CFG_1/2)は設定していない(ミニローダー/ブート済み設定を前提)。

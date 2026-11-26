@@ -34,7 +34,7 @@
 ## 3. ブートチェーン (わかったこと)
 
 1. ROM → **miniloader** (署名/非署名、DDR周波数・容量・NANDページサイズ別のバイナリ。非ソース)
-2. 2nd boot loader = **U-Boot** (`second_param.txt`: flash entry 0x80000, サイズ 0x5FF00, 実行アドレス 0x2000000)
+2. 2nd boot loader = **U-Boot** (`second_param.txt`: flash entry 0x80000, サイズ 0x5FF00, 実行アドレス 0x2000000。**実機は NAND 0x20000、0x7FF00、RSA 署名付き**: MINILOADER_ANALYSIS.md §5)
 3. U-Boot → uImage (Linux 2.6.32-SDK-0.2) + JFFS2 rootfs。U-Boot パッチ内に USB アップグレード機能 (bootargs/bootcmd を USB イメージから設定) あり。
 
 ## 4. 目標 (U-Boot/Linux 対応 → 書き込み → HDMI 出力) に向けた評価
