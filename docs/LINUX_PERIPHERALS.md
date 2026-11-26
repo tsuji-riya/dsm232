@@ -298,6 +298,16 @@ kexec -e
 ```
 `root=LABEL=` は initramfs の `/init` が解決するので、`--initrd` を省くと root をマウントできずに panic する。
 
+### 上位 RAM 119MB を Linux に足す(仮説・実機未検証)
+`mem=137M` は、純正 FW が 0x08900000 以上をフレームバッファ等に使い、旧版では U-Boot の `logo` が 0x0C000000 に描いた画面を `simple-framebuffer` で引き継いでいたための制限。現在は DRM ドライバが CMA(Linux 側の RAM)から画面を取り、USB 起動経路(`fwimg-app.sh` が仕掛ける `bootcmd`)では純正 U-Boot が `show_logo` も `boots` も実行しない。したがって 0x08900000–0x0FFFFFFF に書き込む DMA は無い、というのが仮説。ARM の `mem=` は 2 個目以降が領域の追加になるので、カーネルを作り直さずに試せる:
+```
+# 上の kexec 手順で、--command-line だけを変える(UART 不要)
+kexec -l /tmp/zImage --dtb=/tmp/cnc1800l-dsm232.dtb --initrd=/tmp/initrd --command-line="$(cat /proc/cmdline) mem=119M@0x08900000 panic=10"
+kexec -e
+```
+UART があれば純正 U-Boot で `setenv extraargs mem=119M@0x08900000` としても同じ(`boot.cmd` が bootargs に足す)。
+検証: `free -m` で約 119MB 増えること、`memtester 100M 3`(`apk add memtester`)が通ること、その状態で HDMI・Wi-Fi・USB を数時間使って異常が出ないこと。問題が出ても電源を入れ直せば元に戻る。確認が取れるまで DTS の既定(137MB)は変えない。
+
 ## 9. 未対応
 - **HDMI 音声**: 音声ブロック(0xB1200000)は DSP で動き、PCM は DSP のファーム(GPL パッケージの `crisprelease/firmware/audio_fw_{text,data,ext_data}.bin`)経由で I2S に出る。ファームへの指示(メールボックス、ホスト IF 領域)はベンダーの `libcsaud.a`(バイナリ)にしか無く、解析が必要。送信部側(I2S 入力、N/CTS、Audio InfoFrame)は `SiITX.c` にある。音の出る機器での確認が必要なため保留。
 - **I2C**: ベンダー独自のブロック 2 つ(0x80170000 IRQ 2 / 0x80174000 IRQ 3、`cnc18xx_i2c.c`)。HDMI の DDC は送信部の中にあり、この I2C とは別。

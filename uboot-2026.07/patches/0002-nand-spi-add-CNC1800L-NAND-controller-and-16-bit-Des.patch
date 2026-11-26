@@ -1,4 +1,4 @@
-From 6a93064be514400ae2b683052bf714cf26ad8c77 Mon Sep 17 00:00:00 2001
+From ba147bfffd0d7f7cca015495db8912af94f64265 Mon Sep 17 00:00:00 2001
 From: tsuji-riya <tsuji.riya@gmail.com>
 Date: Mon, 12 Oct 2026 01:07:41 +0000
 Subject: [PATCH 2/2] nand, spi: add CNC1800L NAND controller and 16-bit
@@ -11,19 +11,28 @@ Let the Designware SPI driver use 16 bit register accesses
 (reg-io-width = <2>) and enable SPI NOR and NAND commands, with a second
 board DTS/defconfig using generic ECC.
 
-Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
-Claude-Session: https://claude.ai/code/session_01K1YEf8BfFQRcvUTgm7e5vZ
+Values taken from dumps of the vendor SPI and NAND flash:
+- SPI NOR in mode 3 at 12MHz, as the vendor U-Boot (CTRLR0 0xc7,
+  BAUDR 8); in mode 0 the flash only answers 0xff.
+- The environment is the vendor one: SPI 0xc000, 8KiB, CRC32 without
+  a redundancy flag. saveenv erases only 0xc000-0xdfff, the miniloader
+  and its parameter block end below 0xc000.
+- No on-flash BBT for the legacy layout: the vendor BBT is not in the
+  format the core reads, and the core would write a new one at probe.
+  The generic-ECC layout, reformatted anyway, keeps an on-flash BBT.
+- mtdparts of the 128MiB Toshiba TC58NVG0S3E as found in the dump,
+  read-only, replacing a 512MiB layout of another model.
 ---
  arch/arm/dts/Makefile                   |   2 +-
- arch/arm/dts/cnc1800l-dsm232-newecc.dts |  20 +++
- arch/arm/dts/cnc1800l-dsm232.dts        |  42 +++++
- configs/dsm232_defconfig                |  24 +++
- configs/dsm232_newecc_defconfig         |  47 +++++
+ arch/arm/dts/cnc1800l-dsm232-newecc.dts |  22 +++
+ arch/arm/dts/cnc1800l-dsm232.dts        |  52 ++++++
+ configs/dsm232_defconfig                |  31 +++-
+ configs/dsm232_newecc_defconfig         |  50 ++++++
  drivers/mtd/nand/raw/Kconfig            |  13 ++
  drivers/mtd/nand/raw/Makefile           |   1 +
- drivers/mtd/nand/raw/cnc1800l_nand.c    | 224 ++++++++++++++++++++++++
+ drivers/mtd/nand/raw/cnc1800l_nand.c    | 223 ++++++++++++++++++++++++
  drivers/spi/designware_spi.c            |  42 +++--
- 9 files changed, 403 insertions(+), 12 deletions(-)
+ 9 files changed, 423 insertions(+), 13 deletions(-)
  create mode 100644 arch/arm/dts/cnc1800l-dsm232-newecc.dts
  create mode 100644 configs/dsm232_newecc_defconfig
  create mode 100644 drivers/mtd/nand/raw/cnc1800l_nand.c
@@ -42,10 +51,10 @@ index 9454e148..9ef69e2f 100644
  dtb-$(CONFIG_TARGET_CORVUS) += at91sam9g45-corvus.dtb
 diff --git a/arch/arm/dts/cnc1800l-dsm232-newecc.dts b/arch/arm/dts/cnc1800l-dsm232-newecc.dts
 new file mode 100644
-index 00000000..2ea08f26
+index 00000000..b27aca57
 --- /dev/null
 +++ b/arch/arm/dts/cnc1800l-dsm232-newecc.dts
-@@ -0,0 +1,20 @@
+@@ -0,0 +1,22 @@
 +// SPDX-License-Identifier: GPL-2.0+ OR MIT
 +/*
 + * DSM-232 with the generic software BCH NAND ECC instead of the SoC 1-bit
@@ -60,6 +69,8 @@ index 00000000..2ea08f26
 +
 +&nand {
 +	nand@0 {
++		/* the whole chip is reformatted: BBT on flash */
++		nand-on-flash-bbt;
 +		nand-ecc-mode = "soft";
 +		nand-ecc-algo = "bch";
 +		nand-ecc-strength = <4>;
@@ -67,7 +78,7 @@ index 00000000..2ea08f26
 +	};
 +};
 diff --git a/arch/arm/dts/cnc1800l-dsm232.dts b/arch/arm/dts/cnc1800l-dsm232.dts
-index 4156813f..e4a2d9fc 100644
+index 4156813f..952eba9f 100644
 --- a/arch/arm/dts/cnc1800l-dsm232.dts
 +++ b/arch/arm/dts/cnc1800l-dsm232.dts
 @@ -33,6 +33,13 @@
@@ -84,7 +95,7 @@ index 4156813f..e4a2d9fc 100644
  	soc {
  		compatible = "simple-bus";
  		#address-cells = <1>;
-@@ -47,6 +54,41 @@
+@@ -47,6 +54,51 @@
  			bootph-all;
  		};
  
@@ -102,7 +113,15 @@ index 4156813f..e4a2d9fc 100644
 +			flash@0 {
 +				compatible = "jedec,spi-nor";
 +				reg = <0>;
-+				spi-max-frequency = <40000000>;
++				/*
++				 * Same as the vendor U-Boot (CTRLR0 = 0xc7, BAUDR = 8):
++				 * mode 3, 94.5MHz / 8. In mode 0 the native chip
++				 * select is released between frames and the flash
++				 * only answers 0xff (seen with Linux on hardware).
++				 */
++				spi-cpol;
++				spi-cpha;
++				spi-max-frequency = <12000000>;
 +			};
 +		};
 +
@@ -114,11 +133,13 @@ index 4156813f..e4a2d9fc 100644
 +
 +			nand@0 {
 +				reg = <0>;
-+				nand-on-flash-bbt;
 +
 +				/*
 +				 * LEGACY ECC (default): SoC 1-bit Hamming /
 +				 * 512 bytes, the vendor on-flash format.
++				 * No nand-on-flash-bbt: the vendor BBT is not in
++				 * the Linux/U-Boot format, so the core would write
++				 * a new one at probe. Scan the factory markers.
 +				 */
 +			};
 +		};
@@ -127,10 +148,19 @@ index 4156813f..e4a2d9fc 100644
  			compatible = "snps,dw-apb-uart";
  			reg = <0x801f1000 0x100>;
 diff --git a/configs/dsm232_defconfig b/configs/dsm232_defconfig
-index 33d743bc..c73b22c0 100644
+index af3a96e9..65baae6e 100644
 --- a/configs/dsm232_defconfig
 +++ b/configs/dsm232_defconfig
-@@ -20,3 +20,27 @@ CONFIG_CMD_MEMTEST=y
+@@ -8,7 +8,7 @@ CONFIG_SYS_MALLOC_F_LEN=0x2000
+ CONFIG_HAS_CUSTOM_SYS_INIT_SP_ADDR=y
+ CONFIG_CUSTOM_SYS_INIT_SP_ADDR=0x01fff000
+ CONFIG_NR_DRAM_BANKS=1
+-CONFIG_ENV_SIZE=0x4000
++CONFIG_ENV_SIZE=0x2000
+ CONFIG_DEFAULT_DEVICE_TREE="cnc1800l-dsm232"
+ CONFIG_TARGET_DSM232=y
+ CONFIG_SYS_LOAD_ADDR=0x01000000
+@@ -20,3 +20,32 @@ CONFIG_CMD_MEMTEST=y
  # CONFIG_EFI_LOADER is not set
  # CONFIG_NET is not set
  # CONFIG_DISPLAY_CPUINFO is not set
@@ -140,6 +170,9 @@ index 33d743bc..c73b22c0 100644
 +CONFIG_CLK=y
 +CONFIG_CLK_FIXED_RATE=y
 +CONFIG_SPI_FLASH=y
++CONFIG_DM_SPI_FLASH=y
++CONFIG_SF_DEFAULT_MODE=0x3
++CONFIG_SF_DEFAULT_SPEED=12000000
 +CONFIG_SPI_FLASH_SFDP_SUPPORT=y
 +CONFIG_SPI_FLASH_WINBOND=y
 +CONFIG_SPI_FLASH_MACRONIX=y
@@ -152,32 +185,34 @@ index 33d743bc..c73b22c0 100644
 +CONFIG_DM_MTD=y
 +CONFIG_MTD_RAW_NAND=y
 +CONFIG_NAND_CNC1800L=y
-+CONFIG_SYS_NAND_USE_FLASH_BBT=y
 +CONFIG_CMD_NAND=y
 +CONFIG_CMD_MTD=y
 +CONFIG_CMD_MTDPARTS=y
 +CONFIG_MTDIDS_DEFAULT="nand0=nand0"
-+CONFIG_MTDPARTS_DEFAULT="mtdparts=nand0:3m(kernel),504m(fs),3m(kernel_update),2m(bad_blks_table)"
++CONFIG_MTDPARTS_DEFAULT="mtdparts=nand0:2m(bootloader)ro,2m(splash)ro,32m(factory)ro,32m(firmware)ro,59904k(data)ro,512k(bbt)ro"
++CONFIG_ENV_IS_IN_SPI_FLASH=y
++CONFIG_ENV_OFFSET=0xc000
++CONFIG_ENV_SECT_SIZE=0x1000
 diff --git a/configs/dsm232_newecc_defconfig b/configs/dsm232_newecc_defconfig
 new file mode 100644
-index 00000000..9e2ba3f0
+index 00000000..5e4c1829
 --- /dev/null
 +++ b/configs/dsm232_newecc_defconfig
-@@ -0,0 +1,47 @@
+@@ -0,0 +1,50 @@
 +CONFIG_ARM=y
 +CONFIG_ARCH_CELESTIAL=y
 +CONFIG_TEXT_BASE=0x02000000
++CONFIG_HAS_BOARD_SIZE_LIMIT=y
++CONFIG_BOARD_SIZE_LIMIT=523008
 +CONFIG_SYS_MALLOC_LEN=0x100000
 +CONFIG_SYS_MALLOC_F_LEN=0x2000
 +CONFIG_HAS_CUSTOM_SYS_INIT_SP_ADDR=y
 +CONFIG_CUSTOM_SYS_INIT_SP_ADDR=0x01fff000
 +CONFIG_NR_DRAM_BANKS=1
-+CONFIG_ENV_SIZE=0x4000
++CONFIG_ENV_SIZE=0x2000
 +CONFIG_DEFAULT_DEVICE_TREE="cnc1800l-dsm232-newecc"
 +CONFIG_TARGET_DSM232=y
 +CONFIG_SYS_LOAD_ADDR=0x01000000
-+CONFIG_SYS_ICACHE_OFF=y
-+CONFIG_SYS_DCACHE_OFF=y
 +CONFIG_SKIP_LOWLEVEL_INIT=y
 +CONFIG_BOOTDELAY=3
 +CONFIG_SYS_PROMPT="DSM232> "
@@ -192,6 +227,9 @@ index 00000000..9e2ba3f0
 +CONFIG_CLK=y
 +CONFIG_CLK_FIXED_RATE=y
 +CONFIG_SPI_FLASH=y
++CONFIG_DM_SPI_FLASH=y
++CONFIG_SF_DEFAULT_MODE=0x3
++CONFIG_SF_DEFAULT_SPEED=12000000
 +CONFIG_SPI_FLASH_SFDP_SUPPORT=y
 +CONFIG_SPI_FLASH_WINBOND=y
 +CONFIG_SPI_FLASH_MACRONIX=y
@@ -204,13 +242,13 @@ index 00000000..9e2ba3f0
 +CONFIG_DM_MTD=y
 +CONFIG_MTD_RAW_NAND=y
 +CONFIG_NAND_CNC1800L=y
-+CONFIG_SYS_NAND_USE_FLASH_BBT=y
 +CONFIG_CMD_NAND=y
 +CONFIG_CMD_MTD=y
 +CONFIG_CMD_MTDPARTS=y
-+CONFIG_MTDIDS_DEFAULT="nand0=nand0"
-+CONFIG_MTDPARTS_DEFAULT="mtdparts=nand0:3m(kernel),504m(fs),3m(kernel_update),2m(bad_blks_table)"
 +CONFIG_NAND_ECC_BCH=y
++CONFIG_ENV_IS_IN_SPI_FLASH=y
++CONFIG_ENV_OFFSET=0xc000
++CONFIG_ENV_SECT_SIZE=0x1000
 diff --git a/drivers/mtd/nand/raw/Kconfig b/drivers/mtd/nand/raw/Kconfig
 index 2999e6b1..5d95f3b9 100644
 --- a/drivers/mtd/nand/raw/Kconfig
@@ -249,10 +287,10 @@ index 76546a62..86f14655 100644
  obj-$(CONFIG_NAND_FSL_ELBC) += fsl_elbc_nand.o
 diff --git a/drivers/mtd/nand/raw/cnc1800l_nand.c b/drivers/mtd/nand/raw/cnc1800l_nand.c
 new file mode 100644
-index 00000000..f546f74b
+index 00000000..53958a36
 --- /dev/null
 +++ b/drivers/mtd/nand/raw/cnc1800l_nand.c
-@@ -0,0 +1,224 @@
+@@ -0,0 +1,223 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
 + * NAND controller driver for the Celestial (Cavium) CNC1800L SoC
@@ -435,7 +473,6 @@ index 00000000..f546f74b
 +	chip->dev_ready = cnc_nand_dev_ready;
 +	chip->read_buf = cnc_nand_read_buf;
 +	chip->write_buf = cnc_nand_write_buf;
-+	chip->bbt_options |= NAND_BBT_USE_FLASH;
 +
 +	/* legacy default; nand_scan() may replace it from the DT properties */
 +	chip->ecc.mode = NAND_ECC_HW;

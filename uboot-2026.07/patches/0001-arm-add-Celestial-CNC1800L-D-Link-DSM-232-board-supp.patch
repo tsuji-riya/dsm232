@@ -1,4 +1,4 @@
-From e203e4c42418fd108bbbef040a6260444282181e Mon Sep 17 00:00:00 2001
+From be5ec23398eee9bc3ee4bdd7a8ad00da325f35e5 Mon Sep 17 00:00:00 2001
 From: tsuji-riya <tsuji.riya@gmail.com>
 Date: Mon, 12 Oct 2026 00:34:35 +0000
 Subject: [PATCH 1/2] arm: add Celestial CNC1800L / D-Link DSM-232 board
@@ -9,8 +9,11 @@ APB timer driver, watchdog reset, DT and defconfig. DDR/PLL setup is
 left to the vendor miniloader; U-Boot runs at 0x02000000 as the
 second boot loader. Not tested on hardware.
 
-Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
-Claude-Session: https://claude.ai/code/session_01K1YEf8BfFQRcvUTgm7e5vZ
+The miniloader parameter block in the vendor SPI dump (offset 0xb500)
+loads at most 0x7ff00 bytes from NAND 0x20000 and checks an RSA-2048
+signature placed right after them, so the image size is limited to
+0x7ff00. Caches are on: the vendor U-Boot runs "dcache on" on the same
+SoC.
 ---
  arch/arm/Kconfig                 | 19 ++++++++
  arch/arm/dts/Makefile            |  1 +
@@ -354,13 +357,15 @@ index 00000000..8be1155f
 +}
 diff --git a/configs/dsm232_defconfig b/configs/dsm232_defconfig
 new file mode 100644
-index 00000000..33d743bc
+index 00000000..af3a96e9
 --- /dev/null
 +++ b/configs/dsm232_defconfig
 @@ -0,0 +1,22 @@
 +CONFIG_ARM=y
 +CONFIG_ARCH_CELESTIAL=y
 +CONFIG_TEXT_BASE=0x02000000
++CONFIG_HAS_BOARD_SIZE_LIMIT=y
++CONFIG_BOARD_SIZE_LIMIT=523008
 +CONFIG_SYS_MALLOC_LEN=0x100000
 +CONFIG_SYS_MALLOC_F_LEN=0x2000
 +CONFIG_HAS_CUSTOM_SYS_INIT_SP_ADDR=y
@@ -370,8 +375,6 @@ index 00000000..33d743bc
 +CONFIG_DEFAULT_DEVICE_TREE="cnc1800l-dsm232"
 +CONFIG_TARGET_DSM232=y
 +CONFIG_SYS_LOAD_ADDR=0x01000000
-+CONFIG_SYS_ICACHE_OFF=y
-+CONFIG_SYS_DCACHE_OFF=y
 +CONFIG_SKIP_LOWLEVEL_INIT=y
 +CONFIG_BOOTDELAY=3
 +CONFIG_SYS_PROMPT="DSM232> "

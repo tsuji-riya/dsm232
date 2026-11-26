@@ -38,7 +38,7 @@
 ## 注意 / 未確認
 - 実機の U-Boot バイナリが GPL 版と同一か、`update` / `upgrade` が有効かは未確認 (`help` で確認)。
 - 開始アドレスのスケール (encrypt.c の 8桁 hex が byte 単位か) と NAND パーティションの対応は実機で `nand info` と突き合わせること。
-- miniloader/U-Boot 領域(SPI)に誤って書くと文鎮化する。
+- miniloader 領域(SPI)や U-Boot 領域(NAND 0x20000、署名付き)に誤って書くと文鎮化する。
 
 ---
 ## 追記: UART 無し・USB を挿して電源 ON だけで書き換える方法
